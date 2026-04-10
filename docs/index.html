@@ -129,8 +129,8 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 async function fetchProjections() {
     const now = new Date().toISOString();
     const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/model_projections?expires_at=gte.${now}&select=model_data&order=created_at.desc&limit=50`,
-        { headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Accept-Profile": "assist_model" } }
+        `${SUPABASE_URL}/rest/v1/am_projections?expires_at=gte.${now}&select=model_data&order=created_at.desc&limit=50`,
+        { headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Accept-Profile": "public" } }
     );
     if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
     const data = await res.json();

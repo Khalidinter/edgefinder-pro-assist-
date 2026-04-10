@@ -11,7 +11,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 SPORT = "basketball_nba"
 MARKET = "player_assists"
 BOOKMAKER = "draftkings"
-SCHEMA = "assist_model"
+SCHEMA = "public"
 
 MIN_GAMES_REQUIRED = 5
 NB_ALPHA = 0.35
