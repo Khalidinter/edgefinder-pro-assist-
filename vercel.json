@@ -4,16 +4,10 @@
     "api/cron_fetch_history.py": { "maxDuration": 300 },
     "api/backtest.py": { "maxDuration": 300 }
   },
-  "builds": [
-    { "src": "api/*.py", "use": "@vercel/python" }
-  ],
-  "routes": [
-    { "src": "/api/health", "dest": "api/health.py" },
-    { "src": "/api/data", "dest": "api/data.py" },
-    { "src": "/api/backtest", "dest": "api/backtest.py" },
-    { "src": "/api/cron/refresh", "dest": "api/cron_refresh.py" },
-    { "src": "/api/cron/fetch-history", "dest": "api/cron_fetch_history.py" },
-    { "src": "/(.*)", "dest": "api/index.py" }
+  "rewrites": [
+    { "source": "/api/cron/refresh", "destination": "/api/cron_refresh" },
+    { "source": "/api/cron/fetch-history", "destination": "/api/cron_fetch_history" },
+    { "source": "/((?!api/).*)", "destination": "/api/index" }
   ],
   "crons": [
     { "path": "/api/cron/refresh", "schedule": "0 16 * * *" }
