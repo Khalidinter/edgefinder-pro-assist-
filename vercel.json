@@ -1,4 +1,7 @@
 {
+  "builds": [
+    { "src": "api/*.py", "use": "@vercel/python" }
+  ],
   "functions": {
     "api/cron_refresh.py": { "maxDuration": 300 },
     "api/cron_fetch_history.py": { "maxDuration": 300 },
