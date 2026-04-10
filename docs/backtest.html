@@ -51,7 +51,7 @@ async function init() {
 
     // Fetch latest run
     const runsRes = await fetch(`${SUPABASE_URL}/rest/v1/backtest_runs?select=*&order=created_at.desc&limit=1`,
-        {headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`}});
+        {headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`,"Accept-Profile":"assist_model"}});
     const runs = await runsRes.json();
 
     if (!runs.length) {
@@ -88,7 +88,7 @@ async function init() {
 
     // Fetch results for this run
     const resRes = await fetch(`${SUPABASE_URL}/rest/v1/backtest_results?run_id=eq.${run.id}&select=*&order=game_date.desc&limit=500`,
-        {headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`}});
+        {headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`,"Accept-Profile":"assist_model"}});
     const results = await resRes.json();
 
     if (!results.length) {
