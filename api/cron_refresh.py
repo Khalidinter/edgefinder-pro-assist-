@@ -6,6 +6,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 
+@app.route("/api/cron_refresh")
 @app.route("/api/cron/refresh")
 def cron_refresh():
     from lib.config import logger

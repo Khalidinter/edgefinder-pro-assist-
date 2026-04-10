@@ -5,6 +5,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 
+@app.route("/api/cron_fetch_history")
 @app.route("/api/cron/fetch-history")
 def fetch_history():
     from lib.config import logger
