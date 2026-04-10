@@ -127,20 +127,30 @@ def fetch_team_stats(season: str) -> pd.DataFrame:
     )
     opp_df = opp.get_data_frames()[0]
 
-    # Extract relevant columns
-    pace_map = adv_df.set_index("TEAM_ABBREVIATION")["PACE"].to_dict()
+    # Extract relevant columns — indexed by team name
+    pace_map = adv_df.set_index("TEAM_NAME")["PACE"].to_dict()
 
     ast_col = "AST" if "AST" in opp_df.columns else "OPP_AST"
-    opp_ast_map = opp_df.set_index("TEAM_ABBREVIATION")[ast_col].to_dict()
+    opp_ast_map = opp_df.set_index("TEAM_NAME")[ast_col].to_dict()
+
+    # Build name-to-abbreviation lookup from adv_df
+    if "TEAM_ABBREVIATION" in adv_df.columns:
+        name_to_abbr = adv_df.set_index("TEAM_NAME")["TEAM_ABBREVIATION"].to_dict()
+    else:
+        # Fallback: reverse the model's TEAM_ABBR_TO_NAME map
+        from lib.model import TEAM_ABBR_TO_NAME
+        name_to_abbr = {v: k for k, v in TEAM_ABBR_TO_NAME.items()}
 
     # Combine
-    teams = sorted(set(pace_map.keys()) | set(opp_ast_map.keys()))
+    team_names = sorted(set(pace_map.keys()) | set(opp_ast_map.keys()))
     rows = []
-    for abbr in teams:
+    for name in team_names:
+        abbr = name_to_abbr.get(name, name[:3].upper())
         rows.append({
             "team_abbr": abbr,
-            "pace": float(pace_map.get(abbr, 100.0)),
-            "opp_ast_allowed": float(opp_ast_map.get(abbr, 25.0)),
+            "team_name": name,
+            "pace": float(pace_map.get(name, 100.0)),
+            "opp_ast_allowed": float(opp_ast_map.get(name, 25.0)),
             "season": season,
         })
 

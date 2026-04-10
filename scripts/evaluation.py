@@ -53,10 +53,9 @@ def calibration_analysis(df: pd.DataFrame, n_bins: int = 10) -> dict:
     brier = brier_score_loss(y_true, y_pred)
 
     # Bucket calibration
-    bets["prob_bucket"] = pd.cut(
-        bets["over_prob"], bins=np.linspace(0, 1, n_bins + 1),
-        labels=[f"{int(i*100)}-{int((i+1)*100)}%" for i in np.linspace(0, 1, n_bins)[:-1]]
-    )
+    bin_edges = np.linspace(0, 1, n_bins + 1)
+    bin_labels = [f"{int(bin_edges[i]*100)}-{int(bin_edges[i+1]*100)}%" for i in range(len(bin_edges) - 1)]
+    bets["prob_bucket"] = pd.cut(bets["over_prob"], bins=bin_edges, labels=bin_labels, include_lowest=True)
 
     buckets = {}
     for bucket, grp in bets.groupby("prob_bucket", observed=True):

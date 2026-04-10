@@ -25,8 +25,7 @@ def custom_time_series_split(df: pd.DataFrame, n_splits: int = 5):
     TimeSeriesSplit that ensures all rows on the same game_date are in the same fold.
     Returns list of (train_indices, val_indices).
     """
-    dates = df["game_date"].unique()
-    dates.sort()
+    dates = np.sort(df["game_date"].unique())
     n_dates = len(dates)
     fold_size = n_dates // (n_splits + 1)
 
