@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeFinder PRO - Backtest</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#0B0F15;--card:#131921;--card-2:#0f172a;--border:#1e2a3a;--border-subtle:#16202e;--text:#E2E8F0;--dim:#64748B;--green:#00E676;--green-dim:rgba(0,230,118,.12);--green-border:rgba(0,230,118,.25);--red:#FF5252;--red-dim:rgba(255,82,82,.12);--amber:#FFD740;--amber-dim:rgba(255,215,64,.12);--amber-border:rgba(255,215,64,.25);--cyan:#00E5FF;--purple:#E040FB;--font-ui:'Outfit',-apple-system,sans-serif;--font-mono:'IBM Plex Mono',monospace}
+        *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;min-height:100vh}
+        .ef-header{background:linear-gradient(180deg,#151c28,var(--bg));border-bottom:1px solid var(--border);padding:18px 24px}.ef-header-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}.ef-header-left{display:flex;align-items:center;gap:14px}
+        .ef-logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--green),#00c853);color:#08110c;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;box-shadow:0 0 20px rgba(0,230,118,.2)}
+        .ef-brand-name{font-size:1.2rem;font-weight:800;letter-spacing:-.03em}.ef-brand-name span{color:var(--green)}
+        .ef-nav-link{font-size:.72rem;font-weight:600;color:var(--dim);text-decoration:none;padding:5px 10px;border-radius:6px;border:1px solid var(--border)}.ef-nav-link:hover{color:var(--text);border-color:var(--dim)}
+        .ef-page{max-width:1200px;margin:0 auto;padding:24px 24px 80px}
+        .ef-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px}.ef-metric{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+        .ef-metric-label{font-size:.62rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+        .ef-metric-value{font-family:var(--font-mono);font-size:1.3rem;font-weight:700}.ef-metric-value.green{color:var(--green)}.ef-metric-value.amber{color:var(--amber)}.ef-metric-value.red{color:var(--red)}
+        .ef-section-title{font-size:.92rem;font-weight:700;margin-bottom:10px}
+        .ef-cal-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:24px}
+        .ef-cal-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center}
+        .ef-cal-bucket{font-size:.68rem;font-weight:700;color:var(--dim);text-transform:uppercase;margin-bottom:6px}
+        .ef-cal-rate{font-family:var(--font-mono);font-size:1.1rem;font-weight:700}.ef-cal-n{font-size:.64rem;color:var(--dim);margin-top:3px}
+        .ef-table-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}.ef-table-scroll{overflow-x:auto}
+        .ef-table{width:100%;border-collapse:collapse;font-size:.8rem}.ef-table thead{background:var(--card-2)}
+        .ef-table th{text-align:left;color:var(--dim);font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
+        .ef-table th.num{text-align:right}.ef-table td{padding:9px 14px;border-bottom:1px solid var(--border-subtle);white-space:nowrap;font-weight:500}.ef-table td.num{text-align:right;font-family:var(--font-mono);font-size:.76rem;font-weight:600}
+        .ef-table tbody tr:hover{background:rgba(148,163,184,.04)}.ef-table tbody tr:last-child td{border-bottom:none}
+        .ef-hit{color:var(--green);font-weight:700}.ef-miss{color:var(--red);font-weight:700}
+        .ef-badge-over{display:inline-flex;padding:2px 6px;border-radius:4px;font-size:.62rem;font-weight:700;background:rgba(0,229,255,.1);color:var(--cyan)}
+        .ef-badge-under{display:inline-flex;padding:2px 6px;border-radius:4px;font-size:.62rem;font-weight:700;background:rgba(224,64,251,.1);color:var(--purple)}
+        .ef-empty{padding:48px;text-align:center;color:var(--dim)}
+        .ef-loading{display:flex;align-items:center;justify-content:center;gap:8px;padding:48px;color:var(--dim)}
+        .ef-spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+        @media(max-width:900px){.ef-metrics{grid-template-columns:repeat(2,1fr)}.ef-cal-grid{grid-template-columns:repeat(2,1fr)}}
+    </style>
+</head>
+<body>
+    <header class="ef-header"><div class="ef-header-inner"><div class="ef-header-left"><div class="ef-logo">E</div><div class="ef-brand-name">Edge<span>Finder</span> Backtest</div></div><a href="index.html" class="ef-nav-link">Dashboard</a></div></header>
+    <main class="ef-page">
+        <div id="metricsSection" style="display:none"></div>
+        <div id="calSection" style="display:none"></div>
+        <div id="resultsSection"></div>
+    </main>
+<script>
+const SUPABASE_URL = "https://jnirimzrhunjdtyvkhtt.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuaXJpbXpyaHVuamR0eXZraHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2OTE3MjUsImV4cCI6MjA5MDI2NzcyNX0.t5qmr1JdCu_FbHvT0S6uzhCPgplnE2LiaETKiXEyhdI";
+
+async function init() {
+    document.getElementById("resultsSection").innerHTML = '<div class="ef-loading"><div class="ef-spinner"></div>Loading backtest results...</div>';
+
+    // Fetch latest run
+    const runsRes = await fetch(`${SUPABASE_URL}/rest/v1/backtest_runs?select=*&order=created_at.desc&limit=1`,
+        {headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`}});
+    const runs = await runsRes.json();
+
+    if (!runs.length) {
+        document.getElementById("resultsSection").innerHTML = '<div class="ef-empty">No backtest results yet. Run scripts/refresh.py locally or trigger the GitHub Action.</div>';
+        return;
+    }
+
+    const run = runs[0];
+    const cal = run.calibration || {};
+
+    // Metrics
+    const hitClass = run.hit_rate >= 55 ? "green" : run.hit_rate >= 50 ? "amber" : "red";
+    document.getElementById("metricsSection").style.display = "block";
+    document.getElementById("metricsSection").innerHTML = `
+        <section class="ef-metrics">
+            <div class="ef-metric"><div class="ef-metric-label">Total Predictions</div><div class="ef-metric-value">${run.total_predictions}</div></div>
+            <div class="ef-metric"><div class="ef-metric-label">Hit Rate</div><div class="ef-metric-value ${hitClass}">${run.hit_rate}%</div></div>
+            <div class="ef-metric"><div class="ef-metric-label">Correct</div><div class="ef-metric-value">${run.correct} / ${run.total_predictions}</div></div>
+            <div class="ef-metric"><div class="ef-metric-label">MAE</div><div class="ef-metric-value">${run.mae}</div></div>
+            <div class="ef-metric"><div class="ef-metric-label">Avg Error</div><div class="ef-metric-value">${run.avg_error}</div></div>
+        </section>`;
+
+    // Calibration
+    const buckets = Object.entries(cal);
+    if (buckets.length) {
+        document.getElementById("calSection").style.display = "block";
+        document.getElementById("calSection").innerHTML = `
+            <div class="ef-section-title">Calibration</div>
+            <section class="ef-cal-grid">${buckets.map(([b, d]) => {
+                const c = d.hit_rate >= 55 ? "var(--green)" : d.hit_rate >= 48 ? "var(--amber)" : "var(--red)";
+                return `<div class="ef-cal-card"><div class="ef-cal-bucket">${b}%</div><div class="ef-cal-rate" style="color:${c}">${d.hit_rate}%</div><div class="ef-cal-n">n=${d.n}</div></div>`;
+            }).join("")}</section>`;
+    }
+
+    // Fetch results for this run
+    const resRes = await fetch(`${SUPABASE_URL}/rest/v1/backtest_results?run_id=eq.${run.id}&select=*&order=game_date.desc&limit=500`,
+        {headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`}});
+    const results = await resRes.json();
+
+    if (!results.length) {
+        document.getElementById("resultsSection").innerHTML = '<div class="ef-empty">No detailed results found.</div>';
+        return;
+    }
+
+    document.getElementById("resultsSection").innerHTML = `
+        <div class="ef-section-title">Predictions (${results.length})</div>
+        <section class="ef-table-wrap"><div class="ef-table-scroll"><table class="ef-table">
+            <thead><tr><th>Player</th><th>Date</th><th class="num">Predicted</th><th class="num">Actual</th><th class="num">Line</th><th class="num">Model %</th><th>Call</th><th>Result</th><th>Hit</th><th class="num">Error</th></tr></thead>
+            <tbody>${results.map(r => `<tr>
+                <td style="font-weight:700">${r.player}</td>
+                <td style="color:var(--dim)">${r.game_date}</td>
+                <td class="num">${r.predicted}</td>
+                <td class="num" style="font-weight:700">${r.actual}</td>
+                <td class="num" style="color:var(--dim)">${r.market_line}</td>
+                <td class="num">${r.model_over_pct}%</td>
+                <td><span class="${r.model_call==='OVER'?'ef-badge-over':'ef-badge-under'}">${r.model_call}</span></td>
+                <td><span class="${r.actual_result==='OVER'?'ef-badge-over':'ef-badge-under'}">${r.actual_result}</span></td>
+                <td><span class="${r.correct?'ef-hit':'ef-miss'}">${r.correct?'HIT':'MISS'}</span></td>
+                <td class="num" style="color:${r.error>0?'var(--green)':r.error<0?'var(--red)':'var(--dim)'}">${r.error>0?'+':''}${r.error}</td>
+            </tr>`).join("")}</tbody>
+        </table></div></section>`;
+}
+
+init();
+</script>
+</body>
+</html>

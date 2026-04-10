@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeFinder PRO - Assist Projections</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#0B0F15;--card:#131921;--card-2:#0f172a;--border:#1e2a3a;--border-subtle:#16202e;--text:#E2E8F0;--text-secondary:#94A3B8;--dim:#64748B;--green:#00E676;--green-dim:rgba(0,230,118,.12);--green-border:rgba(0,230,118,.25);--red:#FF5252;--red-dim:rgba(255,82,82,.12);--red-border:rgba(255,82,82,.25);--amber:#FFD740;--amber-dim:rgba(255,215,64,.12);--amber-border:rgba(255,215,64,.25);--cyan:#00E5FF;--cyan-dim:rgba(0,229,255,.1);--cyan-border:rgba(0,229,255,.25);--purple:#E040FB;--purple-dim:rgba(224,64,251,.1);--purple-border:rgba(224,64,251,.25);--orange:#FF9100;--orange-dim:rgba(255,145,0,.12);--orange-border:rgba(255,145,0,.25);--font-ui:'Outfit',-apple-system,sans-serif;--font-mono:'IBM Plex Mono','SF Mono','Fira Code',monospace}
+        *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;min-height:100vh}
+        .ef-header{background:linear-gradient(180deg,#151c28,var(--bg));border-bottom:1px solid var(--border);padding:18px 24px;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)}
+        .ef-header-inner{max-width:1540px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
+        .ef-header-left{display:flex;align-items:center;gap:14px}
+        .ef-logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--green),#00c853);color:#08110c;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;box-shadow:0 0 20px rgba(0,230,118,.2)}
+        .ef-brand{display:flex;flex-direction:column;gap:1px}.ef-brand-name{font-size:1.35rem;font-weight:800;letter-spacing:-.03em}.ef-brand-name span{color:var(--green)}.ef-brand-sub{font-size:.72rem;color:var(--dim);font-weight:500;text-transform:uppercase;letter-spacing:.08em}
+        .ef-header-right{display:flex;align-items:center;gap:10px}
+        .ef-status-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+        .ef-status-chip.healthy{background:var(--green-dim);border:1px solid var(--green-border);color:var(--green)}.ef-status-chip.stale{background:var(--amber-dim);border:1px solid var(--amber-border);color:var(--amber)}
+        .ef-status-dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pulse 2s infinite}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+        .ef-nav-link{font-size:.72rem;font-weight:600;color:var(--dim);text-decoration:none;padding:5px 10px;border-radius:6px;border:1px solid var(--border);transition:all .15s}.ef-nav-link:hover{color:var(--text);border-color:var(--text-secondary)}
+        .ef-page{max-width:1540px;margin:0 auto;padding:20px 24px 80px}
+        .ef-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+        .ef-metric{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+        .ef-metric-label{font-size:.62rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+        .ef-metric-value{font-family:var(--font-mono);font-size:1.15rem;font-weight:700}.ef-metric-note{font-size:.7rem;color:var(--dim);margin-top:3px}.ef-metric-value.green{color:var(--green)}
+        .ef-toolbar{display:flex;gap:10px;margin-bottom:16px}.ef-toolbar .ef-input{flex:2}.ef-toolbar .ef-select{flex:1}
+        .ef-input,.ef-select{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:.82rem;font-family:var(--font-ui);font-weight:500;outline:none;transition:border-color .15s}
+        .ef-input:focus,.ef-select:focus{border-color:var(--green);box-shadow:0 0 0 2px rgba(0,230,118,.08)}.ef-input::placeholder{color:var(--dim)}
+        .ef-section-header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px}.ef-section-title{font-size:.92rem;font-weight:700}.ef-section-count{font-family:var(--font-mono);font-size:.72rem;color:var(--dim)}
+        .ef-table-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}.ef-table-scroll{overflow-x:auto}
+        .ef-table{width:100%;min-width:1400px;border-collapse:collapse;font-size:.82rem}
+        .ef-table thead{background:var(--card-2)}
+        .ef-table th{text-align:left;color:var(--dim);font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;transition:color .15s}.ef-table th:hover{color:var(--text-secondary)}.ef-table th.num{text-align:right}
+        .ef-table td{padding:10px 12px;border-bottom:1px solid var(--border-subtle);white-space:nowrap;font-weight:500}.ef-table td.num{text-align:right;font-family:var(--font-mono);font-size:.76rem;font-weight:600}
+        .ef-table tbody tr{transition:background .1s}.ef-table tbody tr:hover{background:rgba(148,163,184,.04)}.ef-table tbody tr:last-child td{border-bottom:none}
+        .ef-player-name{font-weight:700;font-size:.84rem;display:flex;align-items:center;gap:5px}.ef-player-market{font-size:.6rem;color:var(--dim);font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+        .ef-role-arrow{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;font-size:.6rem;font-weight:900}.ef-role-arrow.elevated{background:var(--green-dim);color:var(--green)}.ef-role-arrow.reduced{background:var(--red-dim);color:var(--red)}
+        .ef-expected{font-family:var(--font-mono);font-size:.88rem;font-weight:700}
+        .ef-venue{display:inline-flex;padding:2px 7px;border-radius:999px;font-size:.6rem;font-weight:700;border:1px solid var(--border);background:rgba(11,15,21,.6)}.ef-venue.home{color:var(--cyan);border-color:rgba(0,229,255,.2)}.ef-venue.away{color:var(--text-secondary)}
+        .ef-pos{color:var(--green);font-weight:700}.ef-neg{color:var(--red);font-weight:700}.ef-flat{color:var(--dim)}
+        .ef-signal{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:5px;font-family:var(--font-mono);font-size:.68rem;font-weight:700}
+        .ef-signal.over-strong{background:var(--cyan-dim);border:1px solid var(--cyan-border);color:var(--cyan)}.ef-signal.under-strong{background:var(--purple-dim);border:1px solid var(--purple-border);color:var(--purple)}.ef-signal.weak{color:var(--dim)}
+        .ef-edge{font-family:var(--font-mono);font-weight:700;font-size:.76rem}.ef-edge.positive{color:var(--green)}.ef-edge.negative{color:var(--red)}.ef-edge.neutral{color:var(--dim)}
+        .ef-over-pill{display:inline-flex;padding:2px 6px;border-radius:5px;font-family:var(--font-mono);font-size:.72rem;font-weight:700}.ef-over-pill.high{background:var(--green-dim);color:var(--green)}.ef-over-pill.mid{color:var(--text-secondary)}.ef-over-pill.low{background:var(--red-dim);color:var(--red)}
+        .ef-grade{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:5px;font-size:.64rem;font-weight:800}
+        .ef-grade.a{background:var(--green-dim);border:1px solid var(--green-border);color:var(--green)}.ef-grade.b{background:var(--amber-dim);border:1px solid var(--amber-border);color:var(--amber)}.ef-grade.c{background:var(--orange-dim);border:1px solid var(--orange-border);color:var(--orange)}.ef-grade.d{background:var(--red-dim);border:1px solid var(--red-border);color:var(--red)}
+        .ef-factor{font-family:var(--font-mono);font-size:.72rem;font-weight:600}.ef-factor.above{color:var(--green)}.ef-factor.below{color:var(--red)}.ef-factor.neutral{color:var(--text-secondary)}
+        .ef-empty{padding:48px 24px;text-align:center;color:var(--dim);font-size:.88rem}
+        .ef-footer{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border);font-size:.62rem;color:var(--dim);font-weight:500}.ef-footer-left{display:flex;gap:14px}
+        .ef-loading{display:flex;align-items:center;justify-content:center;gap:8px;padding:48px;color:var(--dim);font-size:.88rem}
+        .ef-spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+        @media(max-width:1100px){.ef-metrics{grid-template-columns:repeat(2,1fr)}.ef-toolbar{flex-wrap:wrap}.ef-toolbar .ef-input{flex:1 1 100%}}
+        @media(max-width:640px){.ef-page{padding:16px}.ef-metrics{grid-template-columns:1fr}.ef-header-right{display:none}}
+    </style>
+</head>
+<body>
+    <header class="ef-header">
+        <div class="ef-header-inner">
+            <div class="ef-header-left">
+                <div class="ef-logo">E</div>
+                <div class="ef-brand">
+                    <div class="ef-brand-name">Edge<span>Finder</span> PRO</div>
+                    <div class="ef-brand-sub">Assist Projection Engine</div>
+                </div>
+            </div>
+            <div class="ef-header-right">
+                <a href="backtest.html" class="ef-nav-link">Backtest</a>
+                <div id="statusChip" class="ef-status-chip stale"><div class="ef-status-dot"></div><span id="statusText">Loading</span></div>
+            </div>
+        </div>
+    </header>
+
+    <main class="ef-page">
+        <section class="ef-metrics">
+            <div class="ef-metric"><div class="ef-metric-label">Players Projected</div><div class="ef-metric-value" id="metricPlayers">--</div><div class="ef-metric-note" id="metricMarket"></div></div>
+            <div class="ef-metric"><div class="ef-metric-label">Avg Expected Assists</div><div class="ef-metric-value" id="metricAvg">--</div></div>
+            <div class="ef-metric"><div class="ef-metric-label">Top Projection</div><div class="ef-metric-value green" id="metricTop">--</div><div class="ef-metric-note" id="metricTopPlayer"></div></div>
+            <div class="ef-metric"><div class="ef-metric-label">Last Refresh</div><div class="ef-metric-value" id="metricRefresh" style="font-size:.78rem">--</div></div>
+        </section>
+
+        <section class="ef-toolbar">
+            <input id="searchInput" class="ef-input" type="text" placeholder="Search player, team, or opponent...">
+            <select id="teamFilter" class="ef-select"><option value="">All Teams</option></select>
+            <select id="venueFilter" class="ef-select"><option value="">All Venues</option><option value="Home">Home</option><option value="Away">Away</option></select>
+            <select id="sortSelect" class="ef-select">
+                <option value="best_edge-desc">Best Edge &#9660;</option>
+                <option value="best_ev-desc">Best EV &#9660;</option>
+                <option value="over_prob-desc">Model Over % &#9660;</option>
+                <option value="expected_assists-desc">Expected Ast &#9660;</option>
+                <option value="player-asc">Player A-Z</option>
+            </select>
+        </section>
+
+        <section class="ef-section-header">
+            <div class="ef-section-title">Projections</div>
+            <div class="ef-section-count" id="sectionCount">Loading...</div>
+        </section>
+
+        <section class="ef-table-wrap">
+            <div id="tableLoading" class="ef-loading"><div class="ef-spinner"></div>Fetching projections from database...</div>
+            <div id="tableContainer" style="display:none">
+                <div class="ef-table-scroll">
+                    <table class="ef-table">
+                        <thead><tr>
+                            <th data-key="player">Player</th><th data-key="team">Team</th><th data-key="venue">V</th>
+                            <th class="num" data-key="expected_assists">Exp Ast</th><th class="num" data-key="market_line">Line</th>
+                            <th class="num" data-key="line_diff">Diff</th><th class="num" data-key="over_prob">Model %</th>
+                            <th class="num" data-key="market_fair_over">Mkt %</th><th class="num" data-key="best_edge">Edge</th>
+                            <th class="num" data-key="best_ev">EV</th><th data-key="best_side">Signal</th>
+                            <th class="num" data-key="kelly_pct">Kelly</th><th data-key="confidence">Conf</th>
+                            <th class="num" data-key="projected_minutes">Min</th><th class="num" data-key="conversion_rate">Conv</th>
+                            <th class="num" data-key="pace_factor">Pace</th><th class="num" data-key="opponent_factor">Opp</th>
+                        </tr></thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
+                <div class="ef-footer"><div class="ef-footer-left"><span>Model: NB (per-player alpha)</span><span>PA: Position-based</span><span>Edge = Model % - Market %</span></div></div>
+            </div>
+            <div id="emptyState" class="ef-empty" style="display:none">No projections available yet. Waiting for daily refresh.</div>
+        </section>
+    </main>
+
+<script>
+const SUPABASE_URL = "https://jnirimzrhunjdtyvkhtt.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuaXJpbXpyaHVuamR0eXZraHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2OTE3MjUsImV4cCI6MjA5MDI2NzcyNX0.t5qmr1JdCu_FbHvT0S6uzhCPgplnE2LiaETKiXEyhdI";
+
+async function fetchProjections() {
+    const now = new Date().toISOString();
+    const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/model_projections?expires_at=gte.${now}&select=model_data&order=created_at.desc&limit=50`,
+        { headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
+    const data = await res.json();
+    return data.map(r => typeof r.model_data === "string" ? JSON.parse(r.model_data) : r.model_data);
+}
+
+function renderRow(r) {
+    const diffClass = r.line_diff > 0 ? "ef-pos" : r.line_diff < 0 ? "ef-neg" : "ef-flat";
+    const diffVal = r.line_diff > 0 ? `+${r.line_diff}` : r.line_diff;
+    const overClass = r.over_prob >= 58 ? "high" : r.over_prob <= 42 ? "low" : "mid";
+    const edgeClass = r.best_edge > 2 ? "positive" : r.best_edge < -2 ? "negative" : "neutral";
+    const venueClass = r.venue === "Home" ? "home" : "away";
+    const conf = (r.confidence || "C").toLowerCase();
+    const roleHtml = r.role_flag === "elevated" ? `<span class="ef-role-arrow elevated" title="Min +${r.minutes_change_pct}%">&#9650;</span>` :
+                     r.role_flag === "reduced" ? `<span class="ef-role-arrow reduced" title="Min ${r.minutes_change_pct}%">&#9660;</span>` : "";
+    let signalHtml;
+    if (r.best_edge >= 3) signalHtml = `<span class="ef-signal ${r.best_side==='OVER'?'over-strong':'under-strong'}">${r.best_side} +${r.best_edge}%</span>`;
+    else if (r.best_edge >= 1) signalHtml = `<span class="ef-signal weak">${r.best_side}</span>`;
+    else signalHtml = `<span class="ef-signal weak">--</span>`;
+    const pf = r.pace_factor, of = r.opponent_factor;
+
+    return `<tr data-player="${r.player||''}" data-team="${r.team||''}" data-opponent="${r.opponent||''}" data-venue="${r.venue||''}"
+        data-expected_assists="${r.expected_assists||0}" data-market_line="${r.market_line||0}" data-line_diff="${r.line_diff||0}"
+        data-over_prob="${r.over_prob||0}" data-market_fair_over="${r.market_fair_over||0}" data-best_edge="${r.best_edge||0}"
+        data-best_ev="${r.best_ev||0}" data-best_side="${r.best_side||''}" data-kelly_pct="${r.kelly_pct||0}"
+        data-confidence="${r.confidence||'C'}" data-projected_minutes="${r.projected_minutes||0}" data-conversion_rate="${r.conversion_rate||0}"
+        data-pace_factor="${pf||1}" data-opponent_factor="${of||1}">
+        <td><div class="ef-player-name">${r.player||''}${roleHtml}</div><div class="ef-player-market">${r.opponent||''} &middot; assists</div></td>
+        <td>${r.team||''}</td>
+        <td><span class="ef-venue ${venueClass}">${(r.venue||'A')[0]}</span></td>
+        <td class="num"><span class="ef-expected">${r.expected_assists}</span></td>
+        <td class="num" style="color:var(--dim)">${r.market_line}</td>
+        <td class="num"><span class="${diffClass}">${diffVal}</span></td>
+        <td class="num"><span class="ef-over-pill ${overClass}">${r.over_prob}%</span></td>
+        <td class="num" style="color:var(--dim)">${r.market_fair_over != null ? r.market_fair_over+'%' : '--'}</td>
+        <td class="num"><span class="ef-edge ${edgeClass}">${r.best_edge>0?'+':''}${r.best_edge}%</span></td>
+        <td class="num"><span class="ef-ev ${r.best_ev>0?'ef-pos':'ef-neg'}">${r.best_ev>0?'+':''}${r.best_ev}%</span></td>
+        <td>${signalHtml}</td>
+        <td class="num ef-factor neutral">${r.kelly_pct}%</td>
+        <td><span class="ef-grade ${conf}">${(r.confidence||'C').toUpperCase()}</span></td>
+        <td class="num ef-factor neutral">${r.projected_minutes}</td>
+        <td class="num ef-factor neutral">${r.conversion_rate}</td>
+        <td class="num"><span class="ef-factor ${pf>1.01?'above':pf<.99?'below':'neutral'}">${pf}</span></td>
+        <td class="num"><span class="ef-factor ${of>1.02?'above':of<.98?'below':'neutral'}">${of}</span></td>
+    </tr>`;
+}
+
+let allRows = [];
+
+function applyFiltersAndSort() {
+    const search = document.getElementById("searchInput").value.trim().toLowerCase();
+    const team = document.getElementById("teamFilter").value;
+    const venue = document.getElementById("venueFilter").value;
+    const [key, dir] = document.getElementById("sortSelect").value.split("-");
+
+    let filtered = allRows.filter(r => {
+        const hay = `${r.player} ${r.team} ${r.opponent}`.toLowerCase();
+        return (!search || hay.includes(search)) && (!team || r.team === team) && (!venue || r.venue === venue);
+    });
+
+    filtered.sort((a, b) => {
+        const av = typeof a[key] === "number" ? a[key] : (a[key]||"").toString().toLowerCase();
+        const bv = typeof b[key] === "number" ? b[key] : (b[key]||"").toString().toLowerCase();
+        if (typeof av === "number" && typeof bv === "number") return dir === "asc" ? av - bv : bv - av;
+        return dir === "asc" ? (av < bv ? -1 : 1) : (av > bv ? -1 : 1);
+    });
+
+    document.getElementById("tableBody").innerHTML = filtered.map(renderRow).join("");
+    document.getElementById("sectionCount").textContent = `${filtered.length} players \u00b7 sorted by edge`;
+}
+
+async function init() {
+    try {
+        allRows = await fetchProjections();
+
+        document.getElementById("tableLoading").style.display = "none";
+
+        if (allRows.length === 0) {
+            document.getElementById("emptyState").style.display = "block";
+            document.getElementById("statusText").textContent = "Stale";
+            document.getElementById("metricPlayers").textContent = "0";
+            document.getElementById("metricAvg").textContent = "0.0";
+            document.getElementById("metricTop").textContent = "0.0";
+            document.getElementById("metricRefresh").textContent = "Never";
+            document.getElementById("sectionCount").textContent = "0 players";
+            return;
+        }
+
+        document.getElementById("tableContainer").style.display = "block";
+
+        // Metrics
+        const avg = (allRows.reduce((s, r) => s + (r.expected_assists || 0), 0) / allRows.length).toFixed(2);
+        const top = allRows.reduce((a, b) => (a.expected_assists || 0) > (b.expected_assists || 0) ? a : b);
+        document.getElementById("metricPlayers").textContent = allRows.length;
+        document.getElementById("metricAvg").textContent = avg;
+        document.getElementById("metricTop").textContent = top.expected_assists;
+        document.getElementById("metricTopPlayer").textContent = top.player;
+        document.getElementById("metricRefresh").textContent = allRows[0].generated_at || "Unknown";
+
+        // Status
+        const chip = document.getElementById("statusChip");
+        chip.className = "ef-status-chip healthy";
+        document.getElementById("statusText").textContent = "Live";
+
+        // Team filter
+        const teams = [...new Set(allRows.map(r => r.team).filter(Boolean))].sort();
+        const tf = document.getElementById("teamFilter");
+        teams.forEach(t => { const o = document.createElement("option"); o.value = t; o.textContent = t; tf.appendChild(o); });
+
+        // Events
+        ["searchInput","teamFilter","venueFilter","sortSelect"].forEach(id => {
+            const el = document.getElementById(id);
+            el.addEventListener(el.tagName === "INPUT" ? "input" : "change", applyFiltersAndSort);
+        });
+
+        applyFiltersAndSort();
+    } catch (e) {
+        document.getElementById("tableLoading").innerHTML = `<div style="color:var(--red)">Failed to load: ${e.message}</div>`;
+    }
+}
+
+init();
+// Refresh every 5 minutes
+setInterval(init, 300000);
+</script>
+</body>
+</html>
