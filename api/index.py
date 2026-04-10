@@ -1,16 +1,19 @@
 """Main dashboard route — serves the projection table."""
-import json
+import os
 from flask import Flask, render_template
-from lib.config import logger
-from lib.db import get_cached_projections
 
-app = Flask(__name__, template_folder="../templates")
+template_path = os.path.join(os.path.dirname(__file__), '..', 'templates')
+app = Flask(__name__, template_folder=template_path)
 
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def dashboard(path):
-    cached = get_cached_projections()
+    try:
+        from lib.db import get_cached_projections
+        cached = get_cached_projections()
+    except Exception as e:
+        cached = []
 
     rows = cached if cached else []
     if rows:

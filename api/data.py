@@ -1,13 +1,17 @@
 """JSON API endpoint for projection data."""
 from flask import Flask, jsonify
-from lib.db import get_cached_projections
 
 app = Flask(__name__)
 
 
 @app.route("/api/data")
 def api_data():
-    rows = get_cached_projections()
+    try:
+        from lib.db import get_cached_projections
+        rows = get_cached_projections()
+    except Exception:
+        rows = []
+
     if rows:
         avg = round(sum(r.get("expected_assists", 0) for r in rows) / len(rows), 2)
         top = max(rows, key=lambda x: x.get("expected_assists", 0))

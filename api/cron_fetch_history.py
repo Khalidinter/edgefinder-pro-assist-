@@ -1,45 +1,34 @@
-"""Fetch and store historical game logs for 3 seasons. Run manually or via cron."""
+"""Fetch and store historical game logs for 3 seasons."""
 import time
 from flask import Flask, request, jsonify
-from lib.config import logger
-from lib.model import (
-    get_multi_season_logs, find_player_id, safe_minutes_to_float,
-    BACKTEST_FALLBACK_PLAYERS,
-)
-from lib.db import save_game_logs, get_cached_game_logs
 
 app = Flask(__name__)
-
-TARGET_SEASONS = ["2023-24", "2024-25", "2025-26"]
 
 
 @app.route("/api/cron/fetch-history")
 def fetch_history():
+    from lib.config import logger
+    from lib.model import find_player_id, get_player_logs_df, safe_minutes_to_float, BACKTEST_FALLBACK_PLAYERS
+    from lib.db import save_game_logs, get_cached_game_logs
+
+    target_seasons = ["2023-24", "2024-25", "2025-26"]
+
     player_list = request.args.get("players", "").split(",")
     player_list = [p.strip() for p in player_list if p.strip()]
     if not player_list:
         player_list = BACKTEST_FALLBACK_PLAYERS
 
-    seasons = request.args.get("seasons", ",".join(TARGET_SEASONS)).split(",")
-    fetched = 0
-    skipped = 0
-    errors = 0
+    seasons = request.args.get("seasons", ",".join(target_seasons)).split(",")
+    fetched, skipped, errors = 0, 0, 0
 
     for player_name in player_list:
         for season in seasons:
-            # Check if already cached
-            cached = get_cached_game_logs(player_name, season)
+            cached = get_cached_game_logs(player_name, season.strip())
             if cached and len(cached) > 10:
                 skipped += 1
                 continue
 
-            pid = find_player_id(player_name)
-            if pid is None:
-                errors += 1
-                continue
-
-            from lib.model import get_player_logs_df
-            result = get_player_logs_df(player_name, season)
+            result = get_player_logs_df(player_name, season.strip())
             if result is None:
                 errors += 1
                 time.sleep(0.6)
@@ -53,7 +42,7 @@ def fetch_history():
                     "player_id": player_id,
                     "team_id": team_id,
                     "team_abbr": str(row.get("TEAM_ABBREVIATION", "")) if "TEAM_ABBREVIATION" in df.columns else "",
-                    "season": season,
+                    "season": season.strip(),
                     "game_date": str(row["GAME_DATE"].date()) if hasattr(row["GAME_DATE"], "date") else str(row["GAME_DATE"]),
                     "game_id": str(row.get("GAME_ID", "")) if "GAME_ID" in df.columns else "",
                     "matchup": str(row.get("MATCHUP", "")) if "MATCHUP" in df.columns else "",
