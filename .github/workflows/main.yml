@@ -1,0 +1,60 @@
+name: Paper Trade
+
+on:
+  schedule:
+    - cron: '0 17 * * *'
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to run'
+        required: true
+        default: 'predict'
+        type: choice
+        options:
+          - predict
+          - resolve
+          - report
+
+jobs:
+  paper-trade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Determine action
+        id: action
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "action=${{ inputs.action }}" >> $GITHUB_OUTPUT
+          elif [ "$(date -u +%H)" -lt "12" ]; then
+            echo "action=resolve" >> $GITHUB_OUTPUT
+          else
+            echo "action=predict" >> $GITHUB_OUTPUT
+          fi
+      - name: Run predictions
+        if: steps.action.outputs.action == 'predict'
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/paper_trade.py --threshold 0.60
+      - name: Resolve yesterday
+        if: steps.action.outputs.action == 'resolve'
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/paper_trade.py --resolve
+      - name: Print report
+        if: steps.action.outputs.action == 'report'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/paper_trade.py --report
