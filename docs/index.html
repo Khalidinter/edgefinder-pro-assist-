@@ -226,7 +226,7 @@
             </div>
 
             <!-- ── Assists Sub-tab ── -->
-            <div id="sub-ast" class="tab-content active">
+            <div id="sub-ast" style="display:block">
                 <section class="ef-metrics" style="grid-template-columns:repeat(4,1fr)">
                     <div class="ef-metric"><div class="ef-metric-label">Players Projected</div><div class="ef-metric-value" id="metricPlayers">--</div></div>
                     <div class="ef-metric"><div class="ef-metric-label">Avg Expected Assists</div><div class="ef-metric-value" id="metricAvg">--</div></div>
@@ -261,7 +261,7 @@
             </div>
 
             <!-- ── Rebounds Sub-tab ── -->
-            <div id="sub-reb" class="tab-content">
+            <div id="sub-reb" style="display:none">
                 <section class="ef-metrics" style="grid-template-columns:repeat(4,1fr)">
                     <div class="ef-metric"><div class="ef-metric-label">Players Projected</div><div class="ef-metric-value purple" id="rbMetricPlayers">--</div></div>
                     <div class="ef-metric"><div class="ef-metric-label">Avg Expected Reb</div><div class="ef-metric-value" id="rbMetricAvg">--</div></div>
@@ -437,10 +437,13 @@ let projLoaded = false, rebProjLoaded = false;
 let allRows = [], allRebRows = [];
 
 function switchSubTab(sub) {
-    document.querySelectorAll('.ef-sub-tab').forEach(el => el.classList.remove('active'));
-    document.querySelector(`.ef-sub-tab${sub === 'reb' ? '.reb' : ':not(.reb)'}`).classList.add('active');
-    document.getElementById('sub-ast').classList.toggle('active', sub === 'ast');
-    document.getElementById('sub-reb').classList.toggle('active', sub === 'reb');
+    document.querySelectorAll('#tab-projections .ef-sub-tab').forEach(el => el.classList.remove('active'));
+    const btn = document.querySelector(`#tab-projections .ef-sub-tab${sub === 'reb' ? '.reb' : ':not(.reb)'}`);
+    if (btn) btn.classList.add('active');
+    const astEl = document.getElementById('sub-ast');
+    const rebEl = document.getElementById('sub-reb');
+    if (astEl) astEl.style.display = sub === 'ast' ? 'block' : 'none';
+    if (rebEl) rebEl.style.display = sub === 'reb' ? 'block' : 'none';
     if (sub === 'reb' && !rebProjLoaded) loadReboundProjections();
 }
 
