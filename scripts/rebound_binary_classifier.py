@@ -217,8 +217,14 @@ def walk_forward_binary(
 
     logger.info("=" * 60)
 
-    # Save
     root = get_project_root()
+
+    # Save the final model (most recent walk-forward snapshot)
+    if model is not None:
+        model.save_model(str(root / "models" / "rebound_binary_classifier.json"))
+        logger.info("Rebound model saved to models/rebound_binary_classifier.json")
+
+    # Save
     output_path = root / "data" / "reports" / "rebound_binary_results.parquet"
     results_df.to_parquet(output_path, index=False)
     logger.info("Results saved to %s", output_path)

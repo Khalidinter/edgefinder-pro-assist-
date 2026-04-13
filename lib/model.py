@@ -21,6 +21,23 @@ from lib.config import (
     ODDS_API_KEY, SPORT, MARKET, BOOKMAKER,
     MIN_GAMES_REQUIRED, NB_ALPHA, logger,
 )
+from lib.backtest_utils import get_project_root
+
+import xgboost as xgb
+
+_ASSIST_XGB_MODEL = None
+
+def _get_assist_xgb_model():
+    """Lazy-load the trained binary classifier (thread-unsafe but fine for single-process use)."""
+    global _ASSIST_XGB_MODEL
+    if _ASSIST_XGB_MODEL is None:
+        model_path = get_project_root() / "models" / "binary_classifier.json"
+        if model_path.exists():
+            m = xgb.XGBClassifier()
+            m.load_model(str(model_path))
+            _ASSIST_XGB_MODEL = m
+            logger.info("Loaded assist XGB model from %s", model_path)
+    return _ASSIST_XGB_MODEL
 
 # ── HTTP Session ──
 retry_strategy = Retry(
@@ -610,7 +627,37 @@ def build_assist_projection_from_logs(
 
     exp_ast = clamp(proj_min * opp_rate * conv_rate * rf * pf * of * tf * vf * mrf, 0.1, 20.0)
     alpha = compute_player_alpha(df["AST"])
-    prob_over = negative_binomial_prob_over_line(exp_ast, market_line, alpha=alpha)
+    nb_prob = negative_binomial_prob_over_line(exp_ast, market_line, alpha=alpha)
+
+    # Try XGB model (primary); fall back to NB heuristic
+    xgb_model = _get_assist_xgb_model()
+    if xgb_model is not None:
+        r10 = last10["AST"].sum() / last10["MIN_FLOAT"].sum() if last10["MIN_FLOAT"].sum() > 0 else r5
+        ast_std = float(last10["AST"].std(ddof=1)) if len(last10) > 1 else 0.0
+        fga_pm = last5["FGA"].sum() / last5["MIN_FLOAT"].sum() if "FGA" in last5.columns and last5["MIN_FLOAT"].sum() > 0 else 0.0
+        pts_pm = last5["PTS"].sum() / last5["MIN_FLOAT"].sum() if "PTS" in last5.columns and last5["MIN_FLOAT"].sum() > 0 else 0.0
+        tov_pm = last5["TOV"].sum() / last5["MIN_FLOAT"].sum() if "TOV" in last5.columns and last5["MIN_FLOAT"].sum() > 0 else 0.0
+        is_home_flag = 1 if venue == "Home" else 0
+        pred_minus = exp_ast - market_line
+        line_minus_l10 = market_line - (r10 * proj_min)
+        xgb_features = [[
+            proj_min, r5, r10, rs, ast_std,
+            fga_pm, pts_pm, tov_pm,
+            team_pace, opponent_pace, opponent_ast_allowed,
+            rest, is_home_flag, 1 if rest <= 1 else 0, len(df),
+            market_line, pred_minus, line_minus_l10,
+        ]]
+        try:
+            prob_over = float(xgb_model.predict_proba(xgb_features)[0, 1])
+            prob_source = "xgb"
+        except Exception as e:
+            logger.warning("XGB inference failed: %s", e)
+            prob_over = nb_prob
+            prob_source = "nb_fallback"
+    else:
+        prob_over = nb_prob
+        prob_source = "nb_fallback"
+
     role = detect_role_change(df)
     conf = compute_confidence_grade(df, exp_ast, market_line, pa_source)
 
@@ -626,6 +673,7 @@ def build_assist_projection_from_logs(
         "role_flag": role["flag"],
         "minutes_change_pct": role["minutes_change_pct"],
         "ast_rate_change_pct": role["ast_rate_change_pct"],
+        "prob_source": prob_source,
     }
 
 

@@ -104,6 +104,39 @@ def save_game_logs(logs: List[Dict]) -> None:
             logger.warning("Failed to save game logs batch: %s", e)
 
 
+# ── Rebound Projections ──
+def save_rebound_projections(rows: List[Dict]) -> None:
+    if not rows:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        _delete("rb_projections", f"expires_at=lt.{now}")
+    except Exception:
+        pass
+    expires = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    records = []
+    for r in rows:
+        records.append({
+            "player": r.get("player"),
+            "team": r.get("home_team", ""),
+            "opponent": r.get("away_team", ""),
+            "market_line": r.get("line"),
+            "expected_reb": r.get("expected_reb"),
+            "over_prob": r.get("over_prob"),
+            "best_edge": r.get("best_edge"),
+            "best_ev": r.get("best_ev"),
+            "best_side": r.get("best_side"),
+            "kelly_pct": r.get("kelly_pct"),
+            "edge_under": r.get("edge_under"),
+            "edge_over": r.get("edge_over"),
+            "model_data": json.dumps(r),
+            "expires_at": expires,
+        })
+    for i in range(0, len(records), 50):
+        _post("rb_projections", records[i:i+50])
+    logger.info("Saved %d rebound projections to Supabase", len(records))
+
+
 # ── Backtest Results ──
 def save_backtest_run(run_summary: Dict, results: List[Dict]) -> str:
     h = dict(HEADERS)

@@ -219,37 +219,78 @@
 
         <!-- ═══════════ PROJECTIONS TAB ═══════════ -->
         <div id="tab-projections" class="tab-content">
-            <section class="ef-metrics" style="grid-template-columns:repeat(4,1fr)">
-                <div class="ef-metric"><div class="ef-metric-label">Players Projected</div><div class="ef-metric-value" id="metricPlayers">--</div></div>
-                <div class="ef-metric"><div class="ef-metric-label">Avg Expected Assists</div><div class="ef-metric-value" id="metricAvg">--</div></div>
-                <div class="ef-metric"><div class="ef-metric-label">Top Projection</div><div class="ef-metric-value green" id="metricTop">--</div><div class="ef-metric-note" id="metricTopPlayer"></div></div>
-                <div class="ef-metric"><div class="ef-metric-label">Last Refresh</div><div class="ef-metric-value" id="metricRefresh" style="font-size:.78rem">--</div></div>
-            </section>
-            <section class="ef-toolbar">
-                <input id="searchInput" class="ef-input" type="text" placeholder="Search player, team, or opponent...">
-                <select id="teamFilter" class="ef-select"><option value="">All Teams</option></select>
-                <select id="venueFilter" class="ef-select"><option value="">All Venues</option><option value="Home">Home</option><option value="Away">Away</option></select>
-                <select id="sortSelect" class="ef-select">
-                    <option value="best_edge-desc">Best Edge</option><option value="best_ev-desc">Best EV</option>
-                    <option value="over_prob-desc">Model Over %</option><option value="expected_assists-desc">Expected Ast</option>
-                    <option value="player-asc">Player A-Z</option>
-                </select>
-            </section>
-            <div class="ef-section-header"><div class="ef-section-title">Heuristic Model Projections</div><div class="ef-section-count" id="sectionCount">Loading...</div></div>
-            <section class="ef-table-wrap">
-                <div id="projLoading" class="ef-loading"><div class="ef-spinner"></div>Fetching projections...</div>
-                <div id="projContainer" style="display:none"><div class="ef-table-scroll">
-                    <table class="ef-table" style="min-width:1400px"><thead><tr>
-                        <th>Player</th><th>Team</th><th>V</th><th class="num">Exp Ast</th><th class="num">Line</th>
-                        <th class="num">Diff</th><th class="num">Model %</th><th class="num">Mkt %</th><th class="num">Edge</th>
-                        <th class="num">EV</th><th>Signal</th><th class="num">Kelly</th><th>Conf</th>
-                        <th class="num">Min</th><th class="num">Conv</th><th class="num">Pace</th><th class="num">Opp</th>
-                    </tr></thead><tbody id="projBody"></tbody></table>
-                </div>
-                <div class="ef-footer"><span style="color:var(--dim);font-size:.62rem">Model: NB (per-player alpha) &middot; Edge = Model % - Market %</span></div>
-                </div>
-                <div id="projEmpty" class="ef-empty" style="display:none">No projections available. Waiting for daily refresh.</div>
-            </section>
+            <!-- Sub-tabs -->
+            <div class="ef-sub-tabs">
+                <button class="ef-sub-tab active" onclick="switchSubTab('ast')">Assists Model</button>
+                <button class="ef-sub-tab reb" onclick="switchSubTab('reb')">Rebounds Model</button>
+            </div>
+
+            <!-- ── Assists Sub-tab ── -->
+            <div id="sub-ast" class="tab-content active">
+                <section class="ef-metrics" style="grid-template-columns:repeat(4,1fr)">
+                    <div class="ef-metric"><div class="ef-metric-label">Players Projected</div><div class="ef-metric-value" id="metricPlayers">--</div></div>
+                    <div class="ef-metric"><div class="ef-metric-label">Avg Expected Assists</div><div class="ef-metric-value" id="metricAvg">--</div></div>
+                    <div class="ef-metric"><div class="ef-metric-label">Top Projection</div><div class="ef-metric-value green" id="metricTop">--</div><div class="ef-metric-note" id="metricTopPlayer"></div></div>
+                    <div class="ef-metric"><div class="ef-metric-label">Last Refresh</div><div class="ef-metric-value" id="metricRefresh" style="font-size:.78rem">--</div></div>
+                </section>
+                <section class="ef-toolbar">
+                    <input id="searchInput" class="ef-input" type="text" placeholder="Search player, team, or opponent...">
+                    <select id="teamFilter" class="ef-select"><option value="">All Teams</option></select>
+                    <select id="venueFilter" class="ef-select"><option value="">All Venues</option><option value="Home">Home</option><option value="Away">Away</option></select>
+                    <select id="sortSelect" class="ef-select">
+                        <option value="best_edge-desc">Best Edge</option><option value="best_ev-desc">Best EV</option>
+                        <option value="over_prob-desc">Model Over %</option><option value="expected_assists-desc">Expected Ast</option>
+                        <option value="player-asc">Player A-Z</option>
+                    </select>
+                </section>
+                <div class="ef-section-header"><div class="ef-section-title">XGB Assist Projections</div><div class="ef-section-count" id="sectionCount">Loading...</div></div>
+                <section class="ef-table-wrap">
+                    <div id="projLoading" class="ef-loading"><div class="ef-spinner"></div>Fetching projections...</div>
+                    <div id="projContainer" style="display:none"><div class="ef-table-scroll">
+                        <table class="ef-table" style="min-width:1400px"><thead><tr>
+                            <th>Player</th><th>Team</th><th>V</th><th class="num">Exp Ast</th><th class="num">Line</th>
+                            <th class="num">Diff</th><th class="num">Model %</th><th class="num">Mkt %</th><th class="num">Edge</th>
+                            <th class="num">EV</th><th>Signal</th><th class="num">Kelly</th><th>Conf</th>
+                            <th class="num">Min</th><th class="num">Conv</th><th class="num">Pace</th><th class="num">Opp</th><th>Src</th>
+                        </tr></thead><tbody id="projBody"></tbody></table>
+                    </div>
+                    <div class="ef-footer"><span style="color:var(--dim);font-size:.62rem">Model: XGB binary classifier (falls back to NB) &middot; Edge = Model % − Market % &middot; Retrained weekly</span></div>
+                    </div>
+                    <div id="projEmpty" class="ef-empty" style="display:none">No projections available. Waiting for daily refresh.</div>
+                </section>
+            </div>
+
+            <!-- ── Rebounds Sub-tab ── -->
+            <div id="sub-reb" class="tab-content">
+                <section class="ef-metrics" style="grid-template-columns:repeat(4,1fr)">
+                    <div class="ef-metric"><div class="ef-metric-label">Players Projected</div><div class="ef-metric-value purple" id="rbMetricPlayers">--</div></div>
+                    <div class="ef-metric"><div class="ef-metric-label">Avg Expected Reb</div><div class="ef-metric-value" id="rbMetricAvg">--</div></div>
+                    <div class="ef-metric"><div class="ef-metric-label">Top Projection</div><div class="ef-metric-value purple" id="rbMetricTop">--</div><div class="ef-metric-note" id="rbMetricTopPlayer"></div></div>
+                    <div class="ef-metric"><div class="ef-metric-label">Last Refresh</div><div class="ef-metric-value" id="rbMetricRefresh" style="font-size:.78rem">--</div></div>
+                </section>
+                <section class="ef-toolbar">
+                    <input id="rbSearchInput" class="ef-input" type="text" placeholder="Search player or team...">
+                    <select id="rbSortSelect" class="ef-select">
+                        <option value="best_edge-desc">Best Edge</option><option value="best_ev-desc">Best EV</option>
+                        <option value="over_prob-desc">Model Over %</option><option value="expected_reb-desc">Expected Reb</option>
+                        <option value="player-asc">Player A-Z</option>
+                    </select>
+                </section>
+                <div class="ef-section-header"><div class="ef-section-title" style="color:var(--purple)">XGB Rebound Projections</div><div class="ef-section-count" id="rbSectionCount">Loading...</div></div>
+                <section class="ef-table-wrap">
+                    <div id="rbProjLoading" class="ef-loading"><div class="ef-spinner" style="border-top-color:var(--purple)"></div>Fetching rebound projections...</div>
+                    <div id="rbProjContainer" style="display:none"><div class="ef-table-scroll">
+                        <table class="ef-table" style="min-width:900px"><thead><tr>
+                            <th>Player</th><th>Matchup</th><th class="num">Exp Reb</th><th class="num">Line</th>
+                            <th class="num">Diff</th><th class="num">Model %</th><th class="num">Mkt %</th><th class="num">Edge</th>
+                            <th class="num">EV</th><th>Signal</th><th class="num">Kelly</th>
+                        </tr></thead><tbody id="rbProjBody"></tbody></table>
+                    </div>
+                    <div class="ef-footer"><span style="color:var(--dim);font-size:.62rem">Model: XGB rebound binary classifier (25 features) &middot; Edge = Model % − Market % &middot; Retrained weekly</span></div>
+                    </div>
+                    <div id="rbProjEmpty" class="ef-empty" style="display:none">No rebound projections available. Waiting for daily refresh.</div>
+                </section>
+            </div>
         </div>
     </main>
 
@@ -274,13 +315,6 @@ function switchMainTab(tab) {
     document.getElementById('tab-paper').classList.toggle('active', tab === 'paper');
     document.getElementById('tab-projections').classList.toggle('active', tab === 'projections');
     if (tab === 'projections' && !projLoaded) loadProjections();
-}
-
-function switchSubTab(sub) {
-    document.querySelectorAll('.ef-sub-tab').forEach(el => el.classList.remove('active'));
-    document.querySelector(`.ef-sub-tab${sub === 'reb' ? '.reb' : ':not(.reb)'}`).classList.add('active');
-    document.getElementById('sub-ast').classList.toggle('active', sub === 'ast');
-    document.getElementById('sub-reb').classList.toggle('active', sub === 'reb');
 }
 
 function toggleCmd(id) {
@@ -398,16 +432,31 @@ function renderSystem(prefix, todayRows, resolvedRows) {
     }
 }
 
-// ── Projections Tab (existing functionality) ──
-let projLoaded = false;
-let allRows = [];
+// ── Projections Tab ──
+let projLoaded = false, rebProjLoaded = false;
+let allRows = [], allRebRows = [];
+
+function switchSubTab(sub) {
+    document.querySelectorAll('.ef-sub-tab').forEach(el => el.classList.remove('active'));
+    document.querySelector(`.ef-sub-tab${sub === 'reb' ? '.reb' : ':not(.reb)'}`).classList.add('active');
+    document.getElementById('sub-ast').classList.toggle('active', sub === 'ast');
+    document.getElementById('sub-reb').classList.toggle('active', sub === 'reb');
+    if (sub === 'reb' && !rebProjLoaded) loadReboundProjections();
+}
 
 async function loadProjections() {
     projLoaded = true;
     try {
         const now = new Date().toISOString();
-        const data = await sbGet("am_projections", `expires_at=gte.${now}&select=model_data&order=created_at.desc&limit=50`);
-        allRows = data.map(r => typeof r.model_data === "string" ? JSON.parse(r.model_data) : r.model_data);
+        // Deduplicate by player — keep the row with highest |best_edge| (multiple runs can save dupes)
+        const data = await sbGet("am_projections", `expires_at=gte.${now}&select=model_data,player,best_edge&order=created_at.desc&limit=200`);
+        const seen = new Map();
+        data.forEach(r => {
+            const row = typeof r.model_data === "string" ? JSON.parse(r.model_data) : r.model_data;
+            const k = row.player;
+            if (!seen.has(k) || Math.abs(row.best_edge||0) > Math.abs(seen.get(k).best_edge||0)) seen.set(k, row);
+        });
+        allRows = [...seen.values()];
 
         document.getElementById("projLoading").style.display = "none";
         if (allRows.length === 0) { document.getElementById("projEmpty").style.display = "block"; return; }
@@ -437,6 +486,42 @@ async function loadProjections() {
     }
 }
 
+async function loadReboundProjections() {
+    rebProjLoaded = true;
+    try {
+        const now = new Date().toISOString();
+        const data = await sbGet("rb_projections", `expires_at=gte.${now}&select=model_data,player,best_edge&order=created_at.desc&limit=200`);
+        const seen = new Map();
+        data.forEach(r => {
+            const row = typeof r.model_data === "string" ? JSON.parse(r.model_data) : r.model_data;
+            const k = row.player + (row.line || "");
+            if (!seen.has(k) || Math.abs(row.best_edge||0) > Math.abs(seen.get(k).best_edge||0)) seen.set(k, row);
+        });
+        allRebRows = [...seen.values()];
+
+        document.getElementById("rbProjLoading").style.display = "none";
+        if (allRebRows.length === 0) { document.getElementById("rbProjEmpty").style.display = "block"; return; }
+
+        document.getElementById("rbProjContainer").style.display = "block";
+        const avg = (allRebRows.reduce((s, r) => s + (r.expected_reb || 0), 0) / allRebRows.length).toFixed(2);
+        const top = allRebRows.reduce((a, b) => (a.expected_reb || 0) > (b.expected_reb || 0) ? a : b);
+        document.getElementById("rbMetricPlayers").textContent = allRebRows.length;
+        document.getElementById("rbMetricAvg").textContent = avg;
+        document.getElementById("rbMetricTop").textContent = (top.expected_reb || "--");
+        document.getElementById("rbMetricTopPlayer").textContent = top.player || "";
+        document.getElementById("rbMetricRefresh").textContent = new Date().toLocaleTimeString();
+
+        ["rbSearchInput","rbSortSelect"].forEach(id => {
+            const el = document.getElementById(id);
+            el.removeEventListener(el.tagName === "INPUT" ? "input" : "change", applyRebFiltersAndSort);
+            el.addEventListener(el.tagName === "INPUT" ? "input" : "change", applyRebFiltersAndSort);
+        });
+        applyRebFiltersAndSort();
+    } catch (e) {
+        document.getElementById("rbProjLoading").innerHTML = `<div style="color:var(--red)">Failed: ${e.message}</div>`;
+    }
+}
+
 function applyFiltersAndSort() {
     const search = document.getElementById("searchInput").value.trim().toLowerCase();
     const team = document.getElementById("teamFilter").value;
@@ -455,6 +540,22 @@ function applyFiltersAndSort() {
     document.getElementById("sectionCount").textContent = `${filtered.length} players`;
 }
 
+function applyRebFiltersAndSort() {
+    const search = document.getElementById("rbSearchInput").value.trim().toLowerCase();
+    const [key, dir] = document.getElementById("rbSortSelect").value.split("-");
+    let filtered = allRebRows.filter(r => {
+        const hay = `${r.player} ${r.home_team} ${r.away_team}`.toLowerCase();
+        return !search || hay.includes(search);
+    });
+    filtered.sort((a, b) => {
+        const av = typeof a[key] === "number" ? a[key] : (a[key]||"").toString().toLowerCase();
+        const bv = typeof b[key] === "number" ? b[key] : (b[key]||"").toString().toLowerCase();
+        return typeof av === "number" && typeof bv === "number" ? (dir==="asc"?av-bv:bv-av) : (dir==="asc"?(av<bv?-1:1):(av>bv?-1:1));
+    });
+    document.getElementById("rbProjBody").innerHTML = filtered.map(renderRebRow).join("");
+    document.getElementById("rbSectionCount").textContent = `${filtered.length} players`;
+}
+
 function renderProjRow(r) {
     const diffClass = r.line_diff > 0 ? "ef-pos" : r.line_diff < 0 ? "ef-neg" : "ef-flat";
     const overClass = r.over_prob >= 58 ? "high" : r.over_prob <= 42 ? "low" : "mid";
@@ -464,6 +565,9 @@ function renderProjRow(r) {
     const roleHtml = r.role_flag === "elevated" ? `<span class="ef-role-arrow elevated">&#9650;</span>` : r.role_flag === "reduced" ? `<span class="ef-role-arrow reduced">&#9660;</span>` : "";
     let signalHtml = r.best_edge >= 3 ? `<span class="ef-signal ${r.best_side==='OVER'?'over-strong':'under-strong'}">${r.best_side} +${r.best_edge}%</span>` : r.best_edge >= 1 ? `<span class="ef-signal weak">${r.best_side}</span>` : `<span class="ef-signal weak">--</span>`;
     const pf = r.pace_factor, of = r.opponent_factor;
+    const srcHtml = r.prob_source === "xgb"
+        ? `<span style="font-size:.58rem;font-weight:700;padding:2px 5px;border-radius:4px;background:var(--green-dim);color:var(--green);border:1px solid var(--green-border)">XGB</span>`
+        : `<span style="font-size:.58rem;font-weight:700;padding:2px 5px;border-radius:4px;background:var(--amber-dim);color:var(--amber)">NB</span>`;
     return `<tr>
         <td><div class="ef-player-name">${r.player||''}${roleHtml}</div><div style="font-size:.6rem;color:var(--dim)">${r.opponent||''}</div></td>
         <td>${r.team||''}</td><td><span class="ef-venue ${venueClass}">${(r.venue||'A')[0]}</span></td>
@@ -479,12 +583,37 @@ function renderProjRow(r) {
         <td class="num ef-factor neutral">${r.projected_minutes}</td><td class="num ef-factor neutral">${r.conversion_rate}</td>
         <td class="num"><span class="ef-factor ${pf>1.01?'above':pf<.99?'below':'neutral'}">${pf}</span></td>
         <td class="num"><span class="ef-factor ${of>1.02?'above':of<.98?'below':'neutral'}">${of}</span></td>
+        <td>${srcHtml}</td>
+    </tr>`;
+}
+
+function renderRebRow(r) {
+    const line = r.line || r.market_line || 0;
+    const expReb = r.expected_reb || 0;
+    const diff = (expReb - line).toFixed(2);
+    const diffClass = diff > 0 ? "ef-pos" : diff < 0 ? "ef-neg" : "ef-flat";
+    const overClass = (r.over_prob||50) >= 58 ? "high" : (r.over_prob||50) <= 42 ? "low" : "mid";
+    const edgeClass = (r.best_edge||0) > 2 ? "positive" : (r.best_edge||0) < -2 ? "negative" : "neutral";
+    const matchup = r.home_team && r.away_team ? `${r.away_team} @ ${r.home_team}` : (r.team || "");
+    let signalHtml = (r.best_edge||0) >= 3
+        ? `<span class="ef-signal ${r.best_side==='OVER'?'over-strong':'under-strong'}">${r.best_side} +${r.best_edge}%</span>`
+        : (r.best_edge||0) >= 1 ? `<span class="ef-signal weak">${r.best_side}</span>` : `<span class="ef-signal weak">--</span>`;
+    return `<tr>
+        <td><div class="ef-player-name" style="color:var(--purple)">${r.player||''}</div><div style="font-size:.6rem;color:var(--dim)">${matchup}</div></td>
+        <td style="font-size:.72rem;color:var(--text-secondary)">${matchup}</td>
+        <td class="num" style="font-family:var(--font-mono);font-weight:700;color:var(--purple)">${expReb.toFixed(1)}</td>
+        <td class="num" style="color:var(--dim)">${line}</td>
+        <td class="num"><span class="${diffClass}">${diff>0?'+':''}${diff}</span></td>
+        <td class="num"><span class="ef-over-pill ${overClass}">${r.over_prob}%</span></td>
+        <td class="num" style="color:var(--dim)">${r.dk_implied_over!=null?r.dk_implied_over+'%':'--'}</td>
+        <td class="num"><span class="ef-edge ${edgeClass}">${(r.best_edge||0)>0?'+':''}${r.best_edge}%</span></td>
+        <td class="num"><span class="${(r.best_ev||0)>0?'ef-pos':'ef-neg'}">${(r.best_ev||0)>0?'+':''}${r.best_ev}%</span></td>
+        <td>${signalHtml}</td><td class="num ef-factor neutral">${r.kelly_pct||0}%</td>
     </tr>`;
 }
 
 // ── Init ──
 loadPaperTrades();
-setInterval(loadPaperTrades, 300000);
 </script>
 </body>
 </html>

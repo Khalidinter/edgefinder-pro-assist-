@@ -1,0 +1,55 @@
+name: Weekly Model Retrain
+
+on:
+  schedule:
+    - cron: '0 12 * * 0'   # Every Sunday at noon UTC
+  workflow_dispatch:
+    inputs:
+      skip_data:
+        description: 'Skip data fetch step'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run retrain pipeline
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          if [ "${{ inputs.skip_data }}" = "true" ]; then
+            python scripts/retrain.py --skip-data
+          else
+            python scripts/retrain.py
+          fi
+
+      - name: Commit updated models
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add models/binary_classifier.json models/rebound_binary_classifier.json \
+                  data/features/feature_matrix.parquet data/features/rebound_features.parquet \
+                  --force
+          git diff --cached --quiet || git commit -m "chore: weekly model retrain $(date -u +%Y-%m-%d)"
+          git push
