@@ -192,7 +192,8 @@ def build_today_features(lines_df: pd.DataFrame) -> pd.DataFrame:
 
             time.sleep(0.6)
             logs = playergamelogs.PlayerGameLogs(
-                player_id_nullable=pid, season_nullable=season
+                player_id_nullable=pid, season_nullable=season,
+                timeout=10,
             ).get_data_frames()[0]
 
             if logs.empty or len(logs) < 5:
@@ -376,7 +377,8 @@ def resolve_predictions() -> None:
 
             time.sleep(0.6)
             logs = playergamelogs.PlayerGameLogs(
-                player_id_nullable=pid, season_nullable=_current_season()
+                player_id_nullable=pid, season_nullable=_current_season(),
+                timeout=10,
             ).get_data_frames()[0]
 
             if logs.empty:

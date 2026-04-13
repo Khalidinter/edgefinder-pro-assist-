@@ -16,6 +16,7 @@ from urllib3.util.retry import Retry
 from nba_api.stats.endpoints import playergamelogs, leaguedashteamstats, playerdashptpass
 from nba_api.stats.static import players
 
+from lib.db import get_cached_game_logs, save_game_logs
 from lib.config import (
     ODDS_API_KEY, SPORT, MARKET, BOOKMAKER,
     MIN_GAMES_REQUIRED, NB_ALPHA, logger,
@@ -262,6 +263,7 @@ def get_player_logs_df(
     try:
         df = playergamelogs.PlayerGameLogs(
             player_id_nullable=player_id, season_nullable=season,
+            timeout=10,
         ).get_data_frames()[0]
         if df.empty:
             return None
@@ -271,10 +273,67 @@ def get_player_logs_df(
         df["AST"] = pd.to_numeric(df["AST"], errors="coerce").fillna(0.0)
         df = df.sort_values("GAME_DATE").reset_index(drop=True)
         team_id = int(df.iloc[-1]["TEAM_ID"]) if "TEAM_ID" in df.columns else 0
+        # Cache fresh logs for future fallback
+        try:
+            records = []
+            for _, row in df.iterrows():
+                records.append({
+                    "player_name": player_name,
+                    "player_id": player_id,
+                    "team_id": team_id,
+                    "team_abbr": str(row.get("TEAM_ABBREVIATION", "")),
+                    "season": season,
+                    "game_date": str(row["GAME_DATE"].date()),
+                    "game_id": str(row.get("GAME_ID", "")),
+                    "matchup": str(row.get("MATCHUP", "")),
+                    "minutes": round(float(row.get("MIN_FLOAT", 0)), 1),
+                    "assists": int(row.get("AST", 0)),
+                    "points": int(row.get("PTS", 0)),
+                    "rebounds": int(row.get("REB", 0)),
+                    "turnovers": int(row.get("TOV", 0)),
+                    "fga": int(row.get("FGA", 0)),
+                    "fgm": int(row.get("FGM", 0)),
+                })
+            save_game_logs(records)
+        except Exception:
+            pass
         return df, player_id, team_id
     except Exception as e:
-        logger.warning("Failed to fetch logs for %s: %s", player_name, e)
+        logger.warning("Failed to fetch logs for %s: %s — trying cache", player_name, e)
+        return _load_cached_logs(player_name, player_id, season)
+
+
+def _load_cached_logs(
+    player_name: str, player_id: int, season: str
+) -> Optional[Tuple[pd.DataFrame, int, int]]:
+    """Reconstruct a logs DataFrame from the Supabase game-log cache."""
+    cached = get_cached_game_logs(player_name, season)
+    if not cached or len(cached) < 5:
         return None
+    df = pd.DataFrame(cached)
+    # Map cached column names → model column names
+    df = df.rename(columns={
+        "game_date": "GAME_DATE",
+        "team_abbr": "TEAM_ABBREVIATION",
+        "team_id": "TEAM_ID",
+        "matchup": "MATCHUP",
+        "assists": "AST",
+        "points": "PTS",
+        "rebounds": "REB",
+        "turnovers": "TOV",
+        "fga": "FGA",
+        "fgm": "FGM",
+        "minutes": "MIN",
+    })
+    df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
+    df["MIN_FLOAT"] = pd.to_numeric(df["MIN"], errors="coerce").fillna(0.0)
+    df["AST"] = pd.to_numeric(df["AST"], errors="coerce").fillna(0.0)
+    df = df[df["MIN_FLOAT"] > 0].sort_values("GAME_DATE").reset_index(drop=True)
+    if df.empty:
+        return None
+    team_id = int(df.iloc[-1]["TEAM_ID"]) if "TEAM_ID" in df.columns else 0
+    logger.info("Using cached logs for %s %s (%d games)", player_name, season, len(df))
+    return df, player_id, team_id
 
 
 def get_multi_season_logs(
@@ -304,6 +363,7 @@ def fetch_player_tracking_data(
         df = playerdashptpass.PlayerDashPtPass(
             player_id=player_id, team_id=team_id,
             season=season, per_mode_simple="Totals",
+            timeout=10,
         ).get_data_frames()[0]
         if df.empty:
             return None
@@ -345,10 +405,12 @@ def get_team_context_tables(season: str) -> Tuple[Optional[Dict], Optional[str]]
         adv = leaguedashteamstats.LeagueDashTeamStats(
             season=season, season_type_all_star="Regular Season",
             measure_type_detailed_defense="Advanced", per_mode_detailed="PerGame",
+            timeout=10,
         ).get_data_frames()[0]
         opp = leaguedashteamstats.LeagueDashTeamStats(
             season=season, season_type_all_star="Regular Season",
             measure_type_detailed_defense="Opponent", per_mode_detailed="PerGame",
+            timeout=10,
         ).get_data_frames()[0]
         pace_map = adv.set_index("TEAM_NAME")["PACE"].to_dict()
         ast_col = "AST" if "AST" in opp.columns else "OPP_AST"
