@@ -113,7 +113,7 @@ def save_rebound_projections(rows: List[Dict]) -> None:
         _delete("rb_projections", f"expires_at=lt.{now}")
     except Exception:
         pass
-    expires = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    expires = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
     records = []
     for r in rows:
         records.append({

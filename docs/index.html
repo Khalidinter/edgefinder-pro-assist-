@@ -489,18 +489,34 @@ async function loadProjections() {
 async function loadReboundProjections() {
     rebProjLoaded = true;
     try {
+        // Try live (non-expired) first; fall back to last 48h so off-days still show yesterday's slate
         const now = new Date().toISOString();
-        const data = await sbGet("rb_projections", `expires_at=gte.${now}&select=model_data,player,best_edge&order=created_at.desc&limit=200`);
+        let data = await sbGet("rb_projections", `expires_at=gte.${now}&select=model_data,player,best_edge,created_at&order=created_at.desc&limit=200`);
+        let stale = false;
+        if (data.length === 0) {
+            const cutoff = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+            data = await sbGet("rb_projections", `created_at=gte.${cutoff}&select=model_data,player,best_edge,created_at&order=created_at.desc&limit=200`);
+            stale = data.length > 0;
+        }
         const seen = new Map();
         data.forEach(r => {
             const row = typeof r.model_data === "string" ? JSON.parse(r.model_data) : r.model_data;
+            if (r.created_at) row._created_at = r.created_at;
             const k = row.player + (row.line || "");
             if (!seen.has(k) || Math.abs(row.best_edge||0) > Math.abs(seen.get(k).best_edge||0)) seen.set(k, row);
         });
         allRebRows = [...seen.values()];
 
         document.getElementById("rbProjLoading").style.display = "none";
-        if (allRebRows.length === 0) { document.getElementById("rbProjEmpty").style.display = "block"; return; }
+        if (allRebRows.length === 0) {
+            document.getElementById("rbProjEmpty").textContent = "No rebound props posted yet — check back closer to tip-off on game days.";
+            document.getElementById("rbProjEmpty").style.display = "block";
+            return;
+        }
+        if (stale) {
+            const ts = allRebRows[0]._created_at ? new Date(allRebRows[0]._created_at).toLocaleDateString() : "previous game day";
+            document.getElementById("rbMetricRefresh").textContent = `From ${ts} (off-day)`;
+        }
 
         document.getElementById("rbProjContainer").style.display = "block";
         const avg = (allRebRows.reduce((s, r) => s + (r.expected_reb || 0), 0) / allRebRows.length).toFixed(2);
