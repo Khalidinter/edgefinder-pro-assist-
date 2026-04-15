@@ -152,8 +152,8 @@
 
             <!-- Sub-tabs: Assists | Rebounds -->
             <div class="ef-sub-tabs">
-                <button class="ef-sub-tab active" onclick="switchSubTab('ast')">Assists (Under 60%+)</button>
-                <button class="ef-sub-tab reb" onclick="switchSubTab('reb')">Rebounds (Under 8%+ edge)</button>
+                <button class="ef-sub-tab active" onclick="switchPaperSubTab('ast')">Assists (Under 60%+)</button>
+                <button class="ef-sub-tab reb" onclick="switchPaperSubTab('reb')">Rebounds (Under 8%+ edge)</button>
             </div>
 
             <!-- Assists Performance -->
@@ -175,7 +175,7 @@
                 </div>
                 <div id="astTodayEmpty" class="ef-empty" style="display:none">No assist predictions for today yet.</div>
                 </section>
-                <div class="ef-section-header" style="margin-top:20px"><div class="ef-section-title">Recent Resolved Bets</div></div>
+                <div class="ef-section-header" style="margin-top:20px"><div class="ef-section-title">Recent Resolved Bets</div><div class="ef-section-count" id="astResolvedCount"></div></div>
                 <section class="ef-table-wrap"><div class="ef-table-scroll">
                     <table class="ef-table"><thead><tr>
                         <th>Date</th><th>Player</th><th class="num">Line</th><th class="num">Actual</th>
@@ -205,7 +205,7 @@
                 </div>
                 <div id="rebTodayEmpty" class="ef-empty" style="display:none">No rebound predictions for today yet.</div>
                 </section>
-                <div class="ef-section-header" style="margin-top:20px"><div class="ef-section-title">Recent Resolved Bets</div></div>
+                <div class="ef-section-header" style="margin-top:20px"><div class="ef-section-title">Recent Resolved Bets</div><div class="ef-section-count" id="rebResolvedCount"></div></div>
                 <section class="ef-table-wrap"><div class="ef-table-scroll">
                     <table class="ef-table"><thead><tr>
                         <th>Date</th><th>Player</th><th class="num">Line</th><th class="num">Actual</th>
@@ -226,7 +226,7 @@
             </div>
 
             <!-- ── Assists Sub-tab ── -->
-            <div id="sub-ast" style="display:block">
+            <div id="proj-sub-ast" style="display:block">
                 <section class="ef-metrics" style="grid-template-columns:repeat(4,1fr)">
                     <div class="ef-metric"><div class="ef-metric-label">Players Projected</div><div class="ef-metric-value" id="metricPlayers">--</div></div>
                     <div class="ef-metric"><div class="ef-metric-label">Avg Expected Assists</div><div class="ef-metric-value" id="metricAvg">--</div></div>
@@ -261,7 +261,7 @@
             </div>
 
             <!-- ── Rebounds Sub-tab ── -->
-            <div id="sub-reb" style="display:none">
+            <div id="proj-sub-reb" style="display:none">
                 <section class="ef-metrics" style="grid-template-columns:repeat(4,1fr)">
                     <div class="ef-metric"><div class="ef-metric-label">Players Projected</div><div class="ef-metric-value purple" id="rbMetricPlayers">--</div></div>
                     <div class="ef-metric"><div class="ef-metric-label">Avg Expected Reb</div><div class="ef-metric-value" id="rbMetricAvg">--</div></div>
@@ -317,34 +317,79 @@ function switchMainTab(tab) {
     if (tab === 'projections' && !projLoaded) loadProjections();
 }
 
+function switchPaperSubTab(sub) {
+    document.querySelectorAll('#tab-paper .ef-sub-tab').forEach(el => el.classList.remove('active'));
+    const btn = document.querySelector(`#tab-paper .ef-sub-tab${sub === 'reb' ? '.reb' : ':not(.reb)'}`);
+    if (btn) btn.classList.add('active');
+    document.getElementById('sub-ast').style.display = sub === 'ast' ? 'block' : 'none';
+    document.getElementById('sub-reb').style.display = sub === 'reb' ? 'block' : 'none';
+}
+
 function toggleCmd(id) {
     const el = document.getElementById(id);
     el.style.display = el.style.display === 'none' || !el.style.display ? 'block' : 'none';
 }
 
+// ── Pipeline Run Status ──
+async function loadPipelineRuns() {
+    const [astRun, rebRun] = await Promise.all([
+        sbGet("pipeline_runs", `pipeline=eq.assists&run_type=eq.predict&order=run_at.desc&limit=1`),
+        sbGet("pipeline_runs", `pipeline=eq.rebounds&run_type=eq.predict&order=run_at.desc&limit=1`),
+    ]);
+    return { ast: astRun[0] || null, reb: rebRun[0] || null };
+}
+
+function renderRunStatus(prefix, run) {
+    const dot = document.getElementById(`${prefix}StatusDot`);
+    const detail = document.getElementById(`${prefix}LastRun`);
+    if (!run) { dot.className = "ef-status-dot off"; detail.textContent = "No pipeline runs yet"; return; }
+
+    const runDate = run.prediction_date;
+    const isToday = runDate === today();
+    const ts = new Date(run.run_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    const isError = run.status === 'error';
+
+    if (isError) {
+        dot.className = "ef-status-dot stale";
+        detail.textContent = `${ts} · ERROR: ${run.error_msg || 'unknown'}`;
+    } else if (isToday) {
+        dot.className = "ef-status-dot live";
+        const parts = [`${ts}`];
+        if (run.events_found != null) parts.push(`${run.events_found} games`);
+        if (run.lines_fetched != null) parts.push(`${run.lines_fetched} lines`);
+        if (run.bets_placed != null) parts.push(`${run.bets_placed} bet${run.bets_placed !== 1 ? 's' : ''}`);
+        if (run.bets_placed === 0 && run.max_prob_under != null)
+            parts.push(`best: ${(run.max_prob_under * 100).toFixed(1)}%`);
+        detail.textContent = parts.join(' · ');
+    } else {
+        dot.className = "ef-status-dot stale";
+        detail.textContent = `Last: ${runDate} ${ts} · ${run.predictions_saved || 0} predictions`;
+    }
+}
+
 // ── Paper Trading Data ──
 async function loadPaperTrades() {
-    const [astToday, astResolved, rebToday, rebResolved] = await Promise.all([
+    const [astToday, astResolved, rebToday, rebResolved, runs] = await Promise.all([
         sbGet("am_paper_trades", `prediction_date=eq.${today()}&select=*&order=bet_placed.desc,calibrated_prob_under.desc`),
         sbGet("am_paper_trades", `resolved=eq.true&bet_placed=eq.true&select=*&order=prediction_date.desc&limit=100`),
         sbGet("rb_paper_trades", `prediction_date=eq.${today()}&select=*&order=bet_placed.desc,edge_under.desc`),
         sbGet("rb_paper_trades", `resolved=eq.true&bet_placed=eq.true&select=*&order=prediction_date.desc&limit=100`),
+        loadPipelineRuns(),
     ]);
 
+    renderRunStatus("ast", runs.ast);
+    renderRunStatus("reb", runs.reb);
     renderSystem("ast", astToday, astResolved);
     renderSystem("reb", rebToday, rebResolved);
 }
 
+function americanToImplied(odds) {
+    if (!odds) return 0.5;
+    return odds < 0 ? Math.abs(odds) / (Math.abs(odds) + 100) : 100 / (odds + 100);
+}
+
 function renderSystem(prefix, todayRows, resolvedRows) {
     const isAst = prefix === "ast";
-
-    // Status
-    const lastDate = todayRows.length > 0 ? todayRows[0].prediction_date : (resolvedRows.length > 0 ? resolvedRows[0].prediction_date : null);
-    const dot = document.getElementById(`${prefix}StatusDot`);
-    const detail = document.getElementById(`${prefix}LastRun`);
-    if (lastDate === today()) { dot.className = "ef-status-dot live"; detail.textContent = `Last run: today`; }
-    else if (lastDate) { dot.className = "ef-status-dot stale"; detail.textContent = `Last run: ${lastDate}`; }
-    else { dot.className = "ef-status-dot off"; detail.textContent = "No data yet"; }
 
     // Accumulated metrics
     if (resolvedRows.length > 0) {
@@ -372,7 +417,8 @@ function renderSystem(prefix, todayRows, resolvedRows) {
     if (todayRows.length === 0) { empty.style.display = "block"; tbody.innerHTML = ""; }
     else {
         empty.style.display = "none";
-        document.getElementById(`${prefix}TodayCount`).textContent = `${todayRows.length} players`;
+        const betsFlagged = todayRows.filter(r => r.bet_placed).length;
+        document.getElementById(`${prefix}TodayCount`).textContent = `${betsFlagged} bet${betsFlagged !== 1 ? 's' : ''} · ${todayRows.length} total`;
         tbody.innerHTML = todayRows.map(r => {
             const betClass = r.bet_placed ? "bet" : "skip";
             const betText = r.bet_placed ? "BET" : "skip";
@@ -386,15 +432,21 @@ function renderSystem(prefix, todayRows, resolvedRows) {
             const prob = isAst
                 ? `${((r.calibrated_prob_under || r.raw_prob_under || 0) * 100).toFixed(1)}%`
                 : `${((r.model_over_prob || 0) * 100).toFixed(1)}%`;
-            const edge = isAst
-                ? `${(((r.calibrated_prob_under || 0) - 0.5) * 100).toFixed(1)}%`
-                : `${(r.edge_under || 0).toFixed(1)}%`;
+            let edgeVal;
+            if (isAst) {
+                edgeVal = r.edge_under != null ? r.edge_under
+                    : ((r.calibrated_prob_under || 0) - americanToImplied(r.under_price)) * 100;
+            } else {
+                edgeVal = r.edge_under || 0;
+            }
+            const edge = `${edgeVal >= 0 ? '+' : ''}${edgeVal.toFixed(1)}%`;
+            const edgeClass = edgeVal > 2 ? "positive" : edgeVal < -2 ? "negative" : "neutral";
             return `<tr>
                 <td><span class="ef-player-name">${r.player}</span></td>
                 <td class="num">${r.line}</td>
                 <td class="num" style="color:var(--dim)">${r.under_price || "--"}</td>
                 <td class="num">${prob}</td>
-                <td class="num"><span class="ef-edge positive">${edge}</span></td>
+                <td class="num"><span class="ef-edge ${edgeClass}">${edge}</span></td>
                 <td><span class="ef-badge ${betClass}">${betText}</span></td>
                 <td>${resultHtml}</td>
                 <td class="num">${pnlHtml}</td>
@@ -405,6 +457,16 @@ function renderSystem(prefix, todayRows, resolvedRows) {
     // Resolved bets (recent)
     const rBody = document.getElementById(`${prefix}ResolvedBody`);
     const rEmpty = document.getElementById(`${prefix}ResolvedEmpty`);
+    const rCount = document.getElementById(`${prefix}ResolvedCount`);
+    if (resolvedRows.length > 0 && rCount) {
+        const yd = new Date(); yd.setDate(yd.getDate() - 1);
+        const ydStr = yd.toISOString().split('T')[0];
+        const ydRows = resolvedRows.filter(r => r.prediction_date === ydStr);
+        if (ydRows.length > 0) {
+            const ydHits = ydRows.filter(r => r.under_hit).length;
+            rCount.textContent = `Yesterday: ${ydHits}/${ydRows.length} hit`;
+        }
+    }
     if (resolvedRows.length === 0) { rEmpty.style.display = "block"; rBody.innerHTML = ""; }
     else {
         rEmpty.style.display = "none";
@@ -440,8 +502,8 @@ function switchSubTab(sub) {
     document.querySelectorAll('#tab-projections .ef-sub-tab').forEach(el => el.classList.remove('active'));
     const btn = document.querySelector(`#tab-projections .ef-sub-tab${sub === 'reb' ? '.reb' : ':not(.reb)'}`);
     if (btn) btn.classList.add('active');
-    const astEl = document.getElementById('sub-ast');
-    const rebEl = document.getElementById('sub-reb');
+    const astEl = document.getElementById('proj-sub-ast');
+    const rebEl = document.getElementById('proj-sub-reb');
     if (astEl) astEl.style.display = sub === 'ast' ? 'block' : 'none';
     if (rebEl) rebEl.style.display = sub === 'reb' ? 'block' : 'none';
     if (sub === 'reb' && !rebProjLoaded) loadReboundProjections();
@@ -450,12 +512,19 @@ function switchSubTab(sub) {
 async function loadProjections() {
     projLoaded = true;
     try {
+        // Try live (non-expired) first; fall back to last 48h so off-days still show yesterday's slate
         const now = new Date().toISOString();
-        // Deduplicate by player — keep the row with highest |best_edge| (multiple runs can save dupes)
-        const data = await sbGet("am_projections", `expires_at=gte.${now}&select=model_data,player,best_edge&order=created_at.desc&limit=200`);
+        let data = await sbGet("am_projections", `expires_at=gte.${now}&select=model_data,player,best_edge,created_at&order=created_at.desc&limit=200`);
+        let stale = false;
+        if (data.length === 0) {
+            const cutoff = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+            data = await sbGet("am_projections", `created_at=gte.${cutoff}&select=model_data,player,best_edge,created_at&order=created_at.desc&limit=200`);
+            stale = data.length > 0;
+        }
         const seen = new Map();
         data.forEach(r => {
             const row = typeof r.model_data === "string" ? JSON.parse(r.model_data) : r.model_data;
+            if (r.created_at) row._created_at = r.created_at;
             const k = row.player;
             if (!seen.has(k) || Math.abs(row.best_edge||0) > Math.abs(seen.get(k).best_edge||0)) seen.set(k, row);
         });
@@ -471,7 +540,12 @@ async function loadProjections() {
         document.getElementById("metricAvg").textContent = avg;
         document.getElementById("metricTop").textContent = top.expected_assists;
         document.getElementById("metricTopPlayer").textContent = top.player;
-        document.getElementById("metricRefresh").textContent = allRows[0].generated_at || "Unknown";
+        if (stale) {
+            const ts = allRows[0]._created_at ? new Date(allRows[0]._created_at).toLocaleDateString() : "previous game day";
+            document.getElementById("metricRefresh").textContent = `From ${ts} (off-day)`;
+        } else {
+            document.getElementById("metricRefresh").textContent = allRows[0].generated_at || new Date().toLocaleTimeString();
+        }
 
         const teams = [...new Set(allRows.map(r => r.team).filter(Boolean))].sort();
         const tf = document.getElementById("teamFilter");

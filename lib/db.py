@@ -47,6 +47,28 @@ def _delete(table: str, params: str) -> None:
     res.raise_for_status()
 
 
+# ── Pipeline Run Logging ──
+def save_run_log(pipeline: str, run_type: str, prediction_date: str, **kwargs) -> None:
+    """Save a summary row to pipeline_runs for frontend visibility."""
+    row = {
+        "pipeline": pipeline,
+        "run_type": run_type,
+        "prediction_date": prediction_date,
+        "status": kwargs.get("status", "ok"),
+    }
+    for key in ("events_found", "lines_fetched", "predictions_saved", "bets_placed",
+                "predictions_resolved", "max_prob_under", "brier_raw", "brier_calibrated",
+                "error_msg"):
+        if kwargs.get(key) is not None:
+            row[key] = kwargs[key]
+    try:
+        h = dict(HEADERS)
+        h["Prefer"] = "return=minimal"
+        requests.post(f"{BASE}/pipeline_runs", headers=h, json=row, timeout=10)
+    except Exception as e:
+        logger.warning("Failed to save run log: %s", str(e)[:100])
+
+
 # ── Model Projections ──
 def get_cached_projections() -> List[Dict]:
     now = datetime.now(timezone.utc).isoformat()

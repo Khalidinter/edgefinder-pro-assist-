@@ -20,7 +20,7 @@ from lib.backtest_utils import (
     american_to_implied, american_to_decimal,
 )
 from lib.rebound_config import BINARY_FEATURE_COLS
-from lib.db import save_rebound_projections
+from lib.db import save_rebound_projections, save_run_log
 from scripts.rebound_paper_trade import (
     fetch_todays_rebound_lines,
     build_today_features,
@@ -45,6 +45,7 @@ def load_model():
 def main():
     ensure_dirs()
     logger.info("Rebound refresh — generating rebound projections for today")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     model = load_model()
     if model is None:
@@ -53,11 +54,15 @@ def main():
     lines = fetch_todays_rebound_lines()
     if lines.empty:
         logger.info("No rebound lines available — no games today or props not posted yet")
+        save_run_log("rebounds", "refresh", today, events_found=0, predictions_saved=0)
         return
 
     features = build_today_features(lines)
     if features.empty:
         logger.info("No features built — all players failed NBA API lookups")
+        save_run_log("rebounds", "refresh", today, lines_fetched=len(lines),
+                     predictions_saved=0, status="error",
+                     error_msg="All player feature builds failed")
         return
 
     X = features[BINARY_FEATURE_COLS].values
@@ -126,6 +131,10 @@ def main():
     logger.info("Generated %d rebound projections", len(rows))
 
     save_rebound_projections(rows)
+
+    save_run_log("rebounds", "refresh", today,
+                 lines_fetched=len(lines),
+                 predictions_saved=len(rows))
 
 
 if __name__ == "__main__":

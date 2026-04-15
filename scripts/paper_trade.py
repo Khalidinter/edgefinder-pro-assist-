@@ -27,6 +27,7 @@ from lib.backtest_utils import (
     FEATURE_COLS, get_project_root, ensure_dirs,
     american_to_implied, american_to_decimal, payout_at_odds, STANDARD_ODDS,
 )
+from lib.db import save_run_log
 
 ROOT = get_project_root()
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
@@ -50,12 +51,13 @@ def norm(n):
 
 
 # ── Isotonic Calibration ──
-def build_isotonic_calibrator() -> IsotonicRegression:
-    """Train isotonic regression on historical walk-forward predictions."""
+def build_isotonic_calibrator():
+    """Train isotonic regression on historical walk-forward predictions.
+    Returns (IsotonicRegression, brier_raw, brier_calibrated) or (None, None, None)."""
     path = ROOT / "data" / "reports" / "under_signal_predictions.parquet"
     if not path.exists():
         logger.warning("No historical predictions for calibration. Using raw probabilities.")
-        return None
+        return None, None, None
 
     df = pd.read_parquet(path)
     # Use first 70% for calibration training
@@ -63,20 +65,23 @@ def build_isotonic_calibrator() -> IsotonicRegression:
     split = int(len(df) * 0.7)
     train = df.iloc[:split]
 
+    # Support both column name variants
+    line_col = "synthetic_line" if "synthetic_line" in df.columns else "line"
+
     raw_under_probs = train["prob_under"].values
-    actual_under = (train["actual_ast"] < train["synthetic_line"]).astype(float).values
+    actual_under = (train["actual_ast"] < train[line_col]).astype(float).values
 
     iso = IsotonicRegression(y_min=0.01, y_max=0.99)
     iso.fit(raw_under_probs, actual_under)
 
     # Verify calibration improvement on validation set
     val = df.iloc[split:]
-    raw_brier = ((val["prob_under"] - (val["actual_ast"] < val["synthetic_line"]).astype(float)) ** 2).mean()
+    raw_brier = float(((val["prob_under"] - (val["actual_ast"] < val[line_col]).astype(float)) ** 2).mean())
     cal_probs = iso.predict(val["prob_under"].values)
-    cal_brier = ((cal_probs - (val["actual_ast"] < val["synthetic_line"]).astype(float)) ** 2).mean()
+    cal_brier = float(((cal_probs - (val["actual_ast"] < val[line_col]).astype(float)) ** 2).mean())
     logger.info("Isotonic calibration: raw Brier=%.4f → calibrated Brier=%.4f", raw_brier, cal_brier)
 
-    return iso
+    return iso, raw_brier, cal_brier
 
 
 # ── Load Model ──
@@ -92,11 +97,12 @@ def load_model():
 
 
 # ── Fetch Today's Lines ──
-def fetch_todays_lines() -> pd.DataFrame:
-    """Fetch current DK player_assists lines from live Odds API."""
+def fetch_todays_lines():
+    """Fetch current DK player_assists lines from live Odds API.
+    Returns (DataFrame, num_events)."""
     if not ODDS_API_KEY:
         logger.error("ODDS_API_KEY not set")
-        return pd.DataFrame()
+        return pd.DataFrame(), 0
 
     # Get events
     r = requests.get(
@@ -104,7 +110,7 @@ def fetch_todays_lines() -> pd.DataFrame:
         params={"apiKey": ODDS_API_KEY}, timeout=10)
     if r.status_code != 200:
         logger.error("Events fetch failed: %s", r.text[:200])
-        return pd.DataFrame()
+        return pd.DataFrame(), 0
 
     events = r.json()
     logger.info("Found %d NBA events", len(events))
@@ -160,7 +166,7 @@ def fetch_todays_lines() -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
     logger.info("Fetched %d player assist lines", len(df))
-    return df
+    return df, len(events)
 
 
 # ── Build Features for Today ──
@@ -324,6 +330,7 @@ def resolve_predictions() -> None:
         headers=SB_HEADERS, timeout=15)
     if not r.ok or not r.json():
         logger.info("No unresolved predictions for %s", yesterday)
+        save_run_log("assists", "resolve", yesterday, predictions_resolved=0)
         return
 
     preds = r.json()
@@ -376,6 +383,7 @@ def resolve_predictions() -> None:
             logger.warning("Failed to resolve %s: %s", pred.get("player"), str(e)[:100])
 
     logger.info("Resolution complete for %s", yesterday)
+    save_run_log("assists", "resolve", yesterday, predictions_resolved=len(preds))
 
 
 def print_report() -> None:
@@ -434,16 +442,23 @@ def main():
     if model is None:
         return
 
-    iso = build_isotonic_calibrator()
+    iso, brier_raw, brier_cal = build_isotonic_calibrator()
 
-    lines = fetch_todays_lines()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    lines, num_events = fetch_todays_lines()
     if lines.empty:
         logger.info("No lines available (no games today?)")
+        save_run_log("assists", "predict", today, events_found=num_events, lines_fetched=0,
+                     predictions_saved=0, bets_placed=0)
         return
 
     features = build_today_features(lines)
     if features.empty:
         logger.info("No features built (all players failed)")
+        save_run_log("assists", "predict", today, events_found=num_events,
+                     lines_fetched=len(lines), predictions_saved=0, bets_placed=0,
+                     status="error", error_msg="All player feature builds failed")
         return
 
     # Predict
@@ -462,18 +477,24 @@ def main():
     features["calibrated_prob_under"] = cal_under
     features["bet_placed"] = cal_under >= args.threshold
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     predictions = []
     for _, row in features.iterrows():
+        under_price = row.get("under_price")
+        dk_implied = american_to_implied(under_price) if under_price else 0.5
+        cal_prob = float(row["calibrated_prob_under"])
+        edge = (cal_prob - dk_implied) * 100
+
         predictions.append({
             "prediction_date": today,
             "player": row["player"],
             "player_id": int(row["player_id"]),
             "line": float(row["line"]),
             "over_price": row.get("over_price"),
-            "under_price": row.get("under_price"),
+            "under_price": under_price,
             "raw_prob_under": round(float(row["raw_prob_under"]), 4),
-            "calibrated_prob_under": round(float(row["calibrated_prob_under"]), 4),
+            "calibrated_prob_under": round(cal_prob, 4),
+            "dk_implied_under": round(float(dk_implied), 4),
+            "edge_under": round(edge, 2),
             "bet_placed": bool(row["bet_placed"]),
             "resolved": False,
             "home_team": row.get("home_team", ""),
@@ -491,6 +512,16 @@ def main():
 
     save_predictions(predictions)
     logger.info("Saved %d predictions to Supabase", len(predictions))
+
+    max_prob = max(p["calibrated_prob_under"] for p in predictions) if predictions else None
+    save_run_log("assists", "predict", today,
+                 events_found=num_events,
+                 lines_fetched=len(lines),
+                 predictions_saved=len(predictions),
+                 bets_placed=len(bets),
+                 max_prob_under=round(max_prob, 4) if max_prob else None,
+                 brier_raw=round(brier_raw, 4) if brier_raw else None,
+                 brier_calibrated=round(brier_cal, 4) if brier_cal else None)
 
 
 if __name__ == "__main__":
