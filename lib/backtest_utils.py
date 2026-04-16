@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import List
 
-# ── Feature columns (strict order, V2: 19 features) ──
+# ── Feature columns (strict order) ──
 FEATURE_COLS: List[str] = [
     "proj_minutes",
     "ast_per_min_l5",
@@ -22,11 +22,6 @@ FEATURE_COLS: List[str] = [
     "is_home",
     "b2b_flag",
     "games_played_season",
-    # V2 additions
-    "opp_ast_allowed_l10",
-    "game_total",
-    "spread_abs",
-    "min_trend_l5",
 ]
 
 TARGET_COL = "actual_ast"

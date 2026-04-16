@@ -318,6 +318,7 @@ def _compute_rebound_features(
         "reb_per_min_season": round(reb_pm_season, 4),
         "reb_std_l10": round(reb_std, 2),
         "oreb_share_l5": round(oreb_share, 4),
+        "dreb_share_l5": round(dreb_share, 4),
         "fga_per_min_l5": round(fga_pm_l5, 4),
         "pts_per_min_l5": round(pts_pm_l5, 4),
         "tov_per_min_l5": round(tov_pm_l5, 4),
@@ -332,9 +333,6 @@ def _compute_rebound_features(
         "is_home": is_home,
         "b2b_flag": 1 if rest <= 1 else 0,
         "games_played_season": len(logs),
-        # V2 additions — populated at call site if available
-        "game_total": 225.0,
-        "spread_abs": 5.0,
         "dk_line": line,
         "pred_minus_line": round(pred_minus_line, 2),
         "dk_implied_over_prob": round(dk_implied_over, 4),

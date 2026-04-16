@@ -38,7 +38,7 @@ SB_HEADERS = {
     "Content-Type": "application/json", "Prefer": "return=minimal",
 }
 
-BINARY_FEATURES = FEATURE_COLS + ["line_value", "pred_minus_line", "dk_implied_over_prob", "dk_over_price"]
+BINARY_FEATURES = FEATURE_COLS + ["line_value", "pred_minus_line", "line_minus_l10"]
 
 
 def norm(n):
@@ -245,12 +245,8 @@ def _safe_min(v):
 
 
 def _compute_features(logs: pd.DataFrame, line: float,
-                      over_price: float = -110,
-                      opp_ast_allowed_l10: float = None,
-                      game_total: float = None,
-                      spread_abs: float = None,
                       xgb_regressor=None) -> dict:
-    """Compute all 23 features from game logs (prior games only)."""
+    """Compute all 18 features from game logs (prior games only)."""
     if len(logs) < 5:
         return None
 
@@ -277,13 +273,6 @@ def _compute_features(logs: pd.DataFrame, line: float,
     fga_pm_l5 = rate(fga, mins, 5)
     pts_pm_l5 = rate(pts, mins, 5)
     tov_pm_l5 = rate(tov, mins, 5)
-
-    # min_trend_l5 — slope of last 5 games minutes
-    l5_min_trend = mins[-5:] if len(mins) >= 5 else mins[-3:]
-    if len(l5_min_trend) >= 3:
-        min_trend = np.polyfit(range(len(l5_min_trend)), l5_min_trend, 1)[0]
-    else:
-        min_trend = 0.0
 
     # Rest days
     dates = logs["GAME_DATE"].values
@@ -312,11 +301,6 @@ def _compute_features(logs: pd.DataFrame, line: float,
         "is_home": is_home,
         "b2b_flag": 1 if rest <= 1 else 0,
         "games_played_season": len(logs),
-        # V2 additions
-        "opp_ast_allowed_l10": opp_ast_allowed_l10 if opp_ast_allowed_l10 is not None else 25.0,
-        "game_total": game_total if game_total is not None else 225.0,
-        "spread_abs": spread_abs if spread_abs is not None else 5.0,
-        "min_trend_l5": round(min_trend, 3),
     }
 
     # pred_minus_line: use XGBoost regressor if available, else linear estimate
@@ -330,14 +314,10 @@ def _compute_features(logs: pd.DataFrame, line: float,
     else:
         pred_minus = ast_pm_season * proj_min - line
 
-    # DK implied probability
-    dk_implied = american_to_implied(over_price) if over_price != 0 else 0.5
-
     reg_features.update({
         "line_value": line,
         "pred_minus_line": round(pred_minus, 3),
-        "dk_implied_over_prob": round(dk_implied, 4),
-        "dk_over_price": over_price,
+        "line_minus_l10": line - ast_pm_l10 * proj_min,
     })
 
     return reg_features

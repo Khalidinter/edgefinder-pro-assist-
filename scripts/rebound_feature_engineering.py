@@ -34,7 +34,7 @@ REBOUND_FEATURE_COLS = [
     "reb_per_min_season",
     "reb_std_l10",
     "oreb_share_l5",
-    # dreb_share_l5 removed V2 — perfectly inversely correlated with oreb_share_l5
+    "dreb_share_l5",
     # Scoring/usage context
     "fga_per_min_l5",
     "pts_per_min_l5",
@@ -53,9 +53,6 @@ REBOUND_FEATURE_COLS = [
     "is_home",
     "b2b_flag",
     "games_played_season",
-    # V2 additions — Vegas game-level context
-    "game_total",
-    "spread_abs",
 ]
 
 # ── DK-to-NBA player name alias dictionary ──
@@ -196,7 +193,7 @@ def build_rebound_feature_matrix(
     has_oreb = "OREB" in logs.columns and (logs["OREB"] > 0).any()
     has_dreb = "DREB" in logs.columns and (logs["DREB"] > 0).any()
     if not has_oreb:
-        logger.warning("OREB data unavailable — oreb_share_l5 will be NaN")
+        logger.warning("OREB data unavailable — oreb_share_l5 / dreb_share_l5 will be NaN")
 
     # Filter out DNPs (0 minutes)
     logs = logs[logs["MIN_FLOAT"] > 0].copy()
@@ -242,14 +239,16 @@ def build_rebound_feature_matrix(
         lambda x: x.shift(1).rolling(10, min_periods=5).std()
     )
 
-    # Feature 6: OREB share L5 (dreb_share_l5 removed V2 — perfectly correlated)
+    # Features 6-7: OREB/DREB share L5
     if has_oreb:
         logs["oreb_share_l5"] = grp.apply(
             lambda g: ratio_of_sums(g["OREB"].shift(1), g["REB"].shift(1), 5, 3),
             include_groups=False,
         ).reset_index(level=0, drop=True)
+        logs["dreb_share_l5"] = 1.0 - logs["oreb_share_l5"]
     else:
         logs["oreb_share_l5"] = np.nan
+        logs["dreb_share_l5"] = np.nan
 
     # Features 8-10: scoring/usage context per min L5
     logs["fga_per_min_l5"] = grp.apply(
@@ -376,79 +375,6 @@ def build_rebound_feature_matrix(
     logs["actual_min"] = logs["MIN_FLOAT"]
 
     # ═══════════════════════════════════════════════════════════════════
-    # V2: GAME-LEVEL VEGAS FEATURES (game_total, spread_abs)
-    # ═══════════════════════════════════════════════════════════════════
-    all_lines_path = lines_dir / "all_historical_lines.parquet"
-    if all_lines_path.exists():
-        logger.info("Merging game-level Vegas data (game_total, spread_abs)...")
-        all_lines_full = pd.read_parquet(all_lines_path)
-
-        # Build event → game mapping from player prop lines
-        prop_lines = all_lines_full[
-            all_lines_full["market"].isin(["player_assists", "player_rebounds"])
-        ].copy()
-        prop_lines["game_date"] = pd.to_datetime(prop_lines["game_date"])
-        event_games = prop_lines.drop_duplicates(subset=["event_id"])[
-            ["event_id", "game_date", "home_team", "away_team"]
-        ].copy()
-
-        # game_total
-        totals = all_lines_full[all_lines_full["market"] == "totals"].copy()
-        if not totals.empty:
-            totals["game_date"] = pd.to_datetime(totals["game_date"])
-            totals_dedup = totals.drop_duplicates(subset=["event_id"], keep="first")[
-                ["event_id", "line"]
-            ].rename(columns={"line": "game_total"})
-            event_games = event_games.merge(totals_dedup, on="event_id", how="left")
-        else:
-            event_games["game_total"] = np.nan
-
-        # spread_abs
-        spreads = all_lines_full[all_lines_full["market"] == "spreads"].copy()
-        if not spreads.empty:
-            spreads["spread_abs"] = spreads["line"].abs()
-            spreads_dedup = spreads.drop_duplicates(subset=["event_id"], keep="first")[
-                ["event_id", "spread_abs"]
-            ]
-            event_games = event_games.merge(spreads_dedup, on="event_id", how="left")
-        else:
-            event_games["spread_abs"] = np.nan
-
-        # Map Odds API team names → NBA abbreviations
-        from lib.odds_team_map import ODDS_TO_NBA_ABBR
-        event_games["home_abbr"] = event_games["home_team"].map(ODDS_TO_NBA_ABBR)
-        event_games["away_abbr"] = event_games["away_team"].map(ODDS_TO_NBA_ABBR)
-
-        vegas_lookup = {}
-        for _, row in event_games.iterrows():
-            gd = row["game_date"]
-            gt = row.get("game_total", np.nan)
-            sa = row.get("spread_abs", np.nan)
-            if pd.notna(row.get("home_abbr")):
-                vegas_lookup[(gd, row["home_abbr"])] = (gt, sa)
-            if pd.notna(row.get("away_abbr")):
-                vegas_lookup[(gd, row["away_abbr"])] = (gt, sa)
-
-        def _lookup_vegas(r):
-            v = vegas_lookup.get((r["GAME_DATE"], r["TEAM_ABBREVIATION"]))
-            if v:
-                return pd.Series({"game_total": v[0], "spread_abs": v[1]})
-            return pd.Series({"game_total": np.nan, "spread_abs": np.nan})
-
-        vegas_df = logs.apply(_lookup_vegas, axis=1)
-        logs["game_total"] = vegas_df["game_total"]
-        logs["spread_abs"] = vegas_df["spread_abs"]
-
-        gt_filled = logs["game_total"].notna().sum()
-        sp_filled = logs["spread_abs"].notna().sum()
-        logger.info("  game_total matched: %d / %d (%.1f%%)", gt_filled, len(logs), gt_filled / len(logs) * 100)
-        logger.info("  spread_abs matched: %d / %d (%.1f%%)", sp_filled, len(logs), sp_filled / len(logs) * 100)
-    else:
-        logs["game_total"] = np.nan
-        logs["spread_abs"] = np.nan
-        logger.warning("No historical lines file — game_total/spread_abs will be NaN")
-
-    # ═══════════════════════════════════════════════════════════════════
     # LOOKAHEAD AUDIT (must run BEFORE filtering — audit needs full game history)
     # ═══════════════════════════════════════════════════════════════════
     if run_audit:
@@ -465,9 +391,8 @@ def build_rebound_feature_matrix(
     logs = logs[logs["games_played_season"] >= min_games].copy()
 
     # Drop rows with NaN in core features (first ~5 games per player)
-    # Allow optional features to be NaN: oreb_share, game_total, spread_abs
-    optional_features = ("oreb_share_l5", "game_total", "spread_abs")
-    core_features = [c for c in REBOUND_FEATURE_COLS if c not in optional_features]
+    # Allow oreb/dreb share to be NaN (optional features)
+    core_features = [c for c in REBOUND_FEATURE_COLS if c not in ("oreb_share_l5", "dreb_share_l5")]
     feature_mask = logs[core_features].notna().all(axis=1)
     before_drop = len(logs)
     logs = logs[feature_mask].copy()
