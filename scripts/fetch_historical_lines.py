@@ -4,9 +4,9 @@ Fetch historical player prop lines from The Odds API.
 Pulls player_assists + player_rebounds for all NBA games.
 Stores results as parquet files in data/lines/.
 
-Cost: 20 quota per event (2 markets × 10 per market × 1 region)
+Cost: 40 quota per event (4 markets × 10 per market × 1 region)
       + 1 per events list call
-Expected: ~170 game days × (1 + 8×20) = ~27,370 quota per season
+Expected: ~170 game days × (1 + 8×40) = ~54,570 quota per season
 """
 import sys, os, time, argparse, json, random
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,7 +19,7 @@ from lib.config import logger
 
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "f39e8cadbb6880ac4d4cd0c5bf2f481c")
 SPORT = "basketball_nba"
-MARKETS = "player_assists,player_rebounds"
+MARKETS = "player_assists,player_rebounds,totals,spreads"
 REGIONS = "us"
 BOOKMAKERS = "draftkings"  # Focus on DK for consistency
 BASE = "https://api.the-odds-api.com/v4"
@@ -91,7 +91,7 @@ def fetch_event_odds(event_id: str, date_str: str) -> dict:
 
 
 def parse_odds_to_rows(odds_data: dict, event_info: dict, date_str: str) -> list:
-    """Parse API response into flat rows."""
+    """Parse API response into flat rows (player props + game-level markets)."""
     rows = []
     if not odds_data or "data" not in odds_data:
         return rows
@@ -107,9 +107,59 @@ def parse_odds_to_rows(odds_data: dict, event_info: dict, date_str: str) -> list
         book_title = book.get("title", "")
 
         for market in book.get("markets", []):
-            market_key = market.get("key", "")  # player_assists or player_rebounds
+            market_key = market.get("key", "")
 
-            # Group outcomes by player+line
+            # ── Game-level markets: totals and spreads ──
+            if market_key == "totals":
+                totals_row = {
+                    "player": "__GAME__",
+                    "market": "totals",
+                    "book": book_title,
+                    "book_key": book_key,
+                    "event_id": event_id,
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "game_date": date_str,
+                    "commence_time": commence,
+                }
+                for outcome in market.get("outcomes", []):
+                    side = outcome.get("name", "")
+                    line = outcome.get("point")
+                    price = outcome.get("price")
+                    if side == "Over" and line is not None:
+                        totals_row["line"] = line
+                        totals_row["over_price"] = price
+                    elif side == "Under" and line is not None:
+                        totals_row["under_price"] = price
+                if "line" in totals_row and "over_price" in totals_row and "under_price" in totals_row:
+                    rows.append(totals_row)
+                continue
+
+            if market_key == "spreads":
+                for outcome in market.get("outcomes", []):
+                    team_name = outcome.get("name", "")
+                    point = outcome.get("point")
+                    price = outcome.get("price")
+                    if team_name and point is not None:
+                        rows.append({
+                            "player": "__GAME__",
+                            "market": "spreads",
+                            "line": point,
+                            "book": book_title,
+                            "book_key": book_key,
+                            "event_id": event_id,
+                            "home_team": home_team,
+                            "away_team": away_team,
+                            "game_date": date_str,
+                            "commence_time": commence,
+                            "over_price": price,  # spread price for this side
+                            "under_price": 0,
+                            "spread_team": team_name,
+                        })
+                        break  # one side is enough (we take abs)
+                continue
+
+            # ── Player-level markets: player_assists, player_rebounds ──
             player_lines = {}
             for outcome in market.get("outcomes", []):
                 player = outcome.get("description", "")

@@ -4,7 +4,8 @@ Binary classification model: Given player + matchup + REAL line, does the over h
 
 Architecture:
   - Target: over_hit (binary) = actual_ast > line
-  - Features: 15 original + line_value + pred_minus_line + line_minus_season_avg
+  - Features: 19 regression + line_value + pred_minus_line + dk_implied_over_prob + dk_over_price (23 total)
+  - pred_minus_line uses actual XGBoost regressor output (walk-forward, retrained every 30 days)
   - Model: XGBoost with log-loss
   - No NB layer, no alpha estimation, no distributional assumptions
   - Calibrated probabilities directly from XGBoost
@@ -90,8 +91,66 @@ def load_and_merge(market: str = "player_assists") -> pd.DataFrame:
 
     # Additional features derived from the real line
     merged["line_value"] = merged["line"]
-    merged["pred_minus_line"] = merged["ast_per_min_season"] * merged["proj_minutes"] - merged["line"]
-    merged["line_minus_l10"] = merged["line"] - (merged["ast_per_min_l10"] * merged["proj_minutes"])
+
+    # pred_minus_line: XGBoost regressor prediction minus line
+    # Load the trained regression model and predict, falling back to linear estimate
+    regressor_path = root / "models" / "frozen_params.json"
+    xgb_pred = None
+    if regressor_path.exists():
+        try:
+            import json as _json
+            with open(regressor_path) as f:
+                frozen_params = _json.load(f)
+
+            # Train a regressor on the same training data to generate predictions
+            # Use the feature matrix directly (all rows sorted by date)
+            fm_sorted = fm.sort_values("game_date").copy()
+            reg_model = xgb.XGBRegressor(**frozen_params, verbosity=0)
+
+            # For each merged row, the regressor prediction should use only
+            # data available before that game. We approximate by training on
+            # all data before the merged row's date and predicting.
+            # For efficiency, we use an expanding-window approach per date.
+            logger.info("Computing pred_minus_line with XGBoost regressor...")
+            merged = merged.sort_values("game_date").reset_index(drop=True)
+            preds = np.full(len(merged), np.nan)
+
+            retrain_dates = []
+            current_model = None
+            last_train_date = None
+            for i, row in merged.iterrows():
+                gd = row["game_date"]
+                # Retrain every 30 days
+                if current_model is None or last_train_date is None or (gd - last_train_date).days >= 30:
+                    train_mask = fm_sorted["game_date"] < gd
+                    train_fm = fm_sorted[train_mask]
+                    if len(train_fm) >= 500:
+                        X_tr = train_fm[FEATURE_COLS].values
+                        y_tr = train_fm["actual_ast"].values
+                        current_model = xgb.XGBRegressor(**frozen_params, verbosity=0)
+                        current_model.fit(X_tr, y_tr)
+                        last_train_date = gd
+
+                if current_model is not None:
+                    X_row = merged.loc[[i], FEATURE_COLS].values
+                    preds[i] = current_model.predict(X_row)[0]
+
+            merged["xgb_reg_pred"] = preds
+            merged["pred_minus_line"] = merged["xgb_reg_pred"] - merged["line"]
+            valid_preds = np.isfinite(preds).sum()
+            logger.info("  XGBoost regressor predictions: %d / %d rows", valid_preds, len(merged))
+        except Exception as e:
+            logger.warning("XGBoost regressor failed (%s), using linear estimate", e)
+            merged["pred_minus_line"] = merged["ast_per_min_season"] * merged["proj_minutes"] - merged["line"]
+    else:
+        logger.warning("No frozen_params.json — using linear estimate for pred_minus_line")
+        merged["pred_minus_line"] = merged["ast_per_min_season"] * merged["proj_minutes"] - merged["line"]
+
+    # DK implied probability + raw odds (V2 additions)
+    merged["dk_implied_over_prob"] = merged["over_price"].apply(
+        lambda x: american_to_implied(x) if pd.notna(x) else np.nan
+    )
+    merged["dk_over_price"] = merged["over_price"]
 
     logger.info("Merged dataset: %d rows, %d unique players, over_hit rate: %.1f%%",
                 len(merged), merged["norm_player"].nunique(),
@@ -100,8 +159,8 @@ def load_and_merge(market: str = "player_assists") -> pd.DataFrame:
     return merged
 
 
-# Binary feature set: original 15 + 3 line-derived
-BINARY_FEATURES = FEATURE_COLS + ["line_value", "pred_minus_line", "line_minus_l10"]
+# Binary feature set: V2 — 19 regression + 4 line-derived = 23
+BINARY_FEATURES = FEATURE_COLS + ["line_value", "pred_minus_line", "dk_implied_over_prob", "dk_over_price"]
 
 
 def train_and_evaluate(
@@ -113,6 +172,12 @@ def train_and_evaluate(
     Time-based train/test split. Train on earlier dates, test on later.
     If train_end_date not specified, uses 70/30 chronological split.
     """
+    # Drop rows with NaN in binary features (game_total/spread_abs may be missing)
+    pre_drop = len(df)
+    df = df.dropna(subset=BINARY_FEATURES).copy()
+    if pre_drop > len(df):
+        logger.info("Dropped %d rows with NaN binary features (%d remaining)", pre_drop - len(df), len(df))
+
     df = df.sort_values("game_date").reset_index(drop=True)
 
     if train_end_date:

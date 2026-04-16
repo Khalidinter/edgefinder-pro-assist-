@@ -148,6 +148,63 @@ def build_feature_matrix(
         lambda r: team_opp_ast_map.get((r["OPP_TEAM_ABBR"], r["SEASON"]), 25.0), axis=1
     )
 
+    # ── V2 Feature 16: opp_ast_allowed_l10 — rolling opponent AST allowed ──
+    # "AST allowed by team X" = assists scored BY X's opponent in each game.
+    # Step 1: aggregate AST per team per game
+    # Step 2: self-join to find what opponents scored against each team
+    # Step 3: rolling L10 with shift(1) per team
+    logger.info("Computing opp_ast_allowed_l10 from game logs...")
+    team_game_ast = logs.groupby(
+        ["TEAM_ABBREVIATION", "GAME_DATE", "GAME_ID"]
+    ).agg(T_AST=("AST", "sum")).reset_index()
+
+    # Self-join on GAME_ID to pair each team with its opponent's AST
+    ast_allowed = team_game_ast.merge(
+        team_game_ast[["GAME_ID", "TEAM_ABBREVIATION", "T_AST"]],
+        on="GAME_ID", suffixes=("", "_opp"),
+    )
+    ast_allowed = ast_allowed[
+        ast_allowed["TEAM_ABBREVIATION"] != ast_allowed["TEAM_ABBREVIATION_opp"]
+    ].copy()
+    # T_AST_opp = assists scored by the other team = assists ALLOWED by this team
+    ast_allowed = ast_allowed.rename(columns={"T_AST_opp": "AST_ALLOWED"})
+    ast_allowed = ast_allowed.sort_values(
+        ["TEAM_ABBREVIATION", "GAME_DATE"]
+    ).reset_index(drop=True)
+
+    ast_allowed["_ast_allowed_l10"] = ast_allowed.groupby(
+        "TEAM_ABBREVIATION"
+    )["AST_ALLOWED"].transform(
+        lambda x: x.shift(1).rolling(10, min_periods=5).mean()
+    )
+
+    opp_ast_l10_lookup = ast_allowed.drop_duplicates(
+        subset=["TEAM_ABBREVIATION", "GAME_DATE"]
+    ).set_index(
+        ["TEAM_ABBREVIATION", "GAME_DATE"]
+    )["_ast_allowed_l10"].to_dict()
+
+    # Lookup: for each player row, get opponent team's AST allowed L10
+    logs["opp_ast_allowed_l10"] = logs.apply(
+        lambda r: opp_ast_l10_lookup.get(
+            (r["OPP_TEAM_ABBR"], r["GAME_DATE"]), np.nan
+        ), axis=1
+    )
+    logger.info("  opp_ast_allowed_l10 computed.")
+
+    # ── V2 Feature 19: min_trend_l5 — slope of minutes over last 5 games ──
+    def minutes_slope_l5(series):
+        """Rolling polyfit slope of minutes over L5 (shifted)."""
+        def _slope(x):
+            if len(x) < 3:
+                return np.nan
+            return np.polyfit(range(len(x)), x, 1)[0]
+        return series.rolling(5, min_periods=3).apply(_slope, raw=True)
+
+    logs["min_trend_l5"] = grp["MIN_FLOAT"].transform(
+        lambda x: minutes_slope_l5(x.shift(1))
+    )
+
     # Feature 12: rest_days
     logs["rest_days"] = grp["GAME_DATE"].diff().dt.days.fillna(7).astype(int)
 
@@ -167,12 +224,99 @@ def build_feature_matrix(
     logs["actual_ast"] = logs["AST"].astype(int)
     logs["actual_min"] = logs["MIN_FLOAT"]
 
+    # ── V2 Features 17-18: game_total and spread_abs from historical lines ──
+    lines_dir = root / "data" / "lines"
+    all_lines_path = lines_dir / "all_historical_lines.parquet"
+    if all_lines_path.exists():
+        logger.info("Merging game-level Vegas data (game_total, spread_abs)...")
+        all_lines = pd.read_parquet(all_lines_path)
+
+        # Build event_id → game mapping from player prop lines
+        # Each player prop line has event_id + game_date, and we know TEAM_ABBREVIATION
+        # from the feature matrix. Bridge via player name match.
+        prop_lines = all_lines[all_lines["market"].isin(["player_assists", "player_rebounds"])].copy()
+        prop_lines["game_date"] = pd.to_datetime(prop_lines["game_date"])
+        event_games = prop_lines.drop_duplicates(subset=["event_id"])[
+            ["event_id", "game_date", "home_team", "away_team"]
+        ].copy()
+
+        # game_total from totals market
+        totals = all_lines[all_lines["market"] == "totals"].copy()
+        if not totals.empty:
+            totals["game_date"] = pd.to_datetime(totals["game_date"])
+            totals_dedup = totals.drop_duplicates(
+                subset=["event_id"], keep="first"
+            )[["event_id", "game_date", "line"]].rename(columns={"line": "game_total"})
+
+            # Merge totals to event_games by event_id
+            event_games = event_games.merge(
+                totals_dedup[["event_id", "game_total"]], on="event_id", how="left"
+            )
+        else:
+            event_games["game_total"] = np.nan
+            logger.warning("  No totals market data — game_total will be NaN")
+
+        # spread_abs from spreads market
+        spreads = all_lines[all_lines["market"] == "spreads"].copy()
+        if not spreads.empty:
+            spreads["game_date"] = pd.to_datetime(spreads["game_date"])
+            spreads["spread_abs"] = spreads["line"].abs()
+            spreads_dedup = spreads.drop_duplicates(
+                subset=["event_id"], keep="first"
+            )[["event_id", "spread_abs"]]
+
+            event_games = event_games.merge(
+                spreads_dedup, on="event_id", how="left"
+            )
+        else:
+            event_games["spread_abs"] = np.nan
+            logger.warning("  No spreads market data — spread_abs will be NaN")
+
+        # Now match event_games to feature matrix rows.
+        # Use ODDS_TO_NBA mapping to bridge team names.
+        from lib.odds_team_map import ODDS_TO_NBA_ABBR
+        event_games["home_abbr"] = event_games["home_team"].map(ODDS_TO_NBA_ABBR)
+        event_games["away_abbr"] = event_games["away_team"].map(ODDS_TO_NBA_ABBR)
+
+        # Build lookup: (game_date, team_abbr) → (game_total, spread_abs)
+        vegas_lookup = {}
+        for _, row in event_games.iterrows():
+            gd = row["game_date"]
+            gt = row.get("game_total", np.nan)
+            sa = row.get("spread_abs", np.nan)
+            if pd.notna(row.get("home_abbr")):
+                vegas_lookup[(gd, row["home_abbr"])] = (gt, sa)
+            if pd.notna(row.get("away_abbr")):
+                vegas_lookup[(gd, row["away_abbr"])] = (gt, sa)
+
+        def _lookup_vegas(r):
+            v = vegas_lookup.get((r["GAME_DATE"], r["TEAM_ABBREVIATION"]))
+            if v:
+                return pd.Series({"game_total": v[0], "spread_abs": v[1]})
+            return pd.Series({"game_total": np.nan, "spread_abs": np.nan})
+
+        vegas_df = logs.apply(_lookup_vegas, axis=1)
+        logs["game_total"] = vegas_df["game_total"]
+        logs["spread_abs"] = vegas_df["spread_abs"]
+
+        gt_filled = logs["game_total"].notna().sum()
+        sp_filled = logs["spread_abs"].notna().sum()
+        logger.info("  game_total matched: %d / %d (%.1f%%)", gt_filled, len(logs), gt_filled / len(logs) * 100)
+        logger.info("  spread_abs matched: %d / %d (%.1f%%)", sp_filled, len(logs), sp_filled / len(logs) * 100)
+    else:
+        logs["game_total"] = np.nan
+        logs["spread_abs"] = np.nan
+        logger.warning("No historical lines file found — game_total/spread_abs will be NaN")
+
     # ── Filter ──
     # Drop rows with insufficient history
     logs = logs[logs["games_played_season"] >= min_games].copy()
 
-    # Drop rows with NaN features (first ~5 games per player per season)
-    feature_mask = logs[FEATURE_COLS].notna().all(axis=1)
+    # Drop rows with NaN in core features (first ~5 games per player per season)
+    # Allow Vegas features to be NaN (populated after data fetch)
+    optional_features = ("game_total", "spread_abs")
+    core_features = [c for c in FEATURE_COLS if c not in optional_features]
+    feature_mask = logs[core_features].notna().all(axis=1)
     before_drop = len(logs)
     logs = logs[feature_mask].copy()
     logger.info("Dropped %d rows with NaN features (%d remaining)", before_drop - len(logs), len(logs))

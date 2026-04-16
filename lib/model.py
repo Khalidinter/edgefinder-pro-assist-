@@ -578,6 +578,8 @@ def build_assist_projection_from_logs(
     league_avg_pace: float = 100.0, league_avg_ast_allowed: float = 25.0,
     pa_multiplier: float = 1.80, pa_source: str = "default",
     tracking_conversion: Optional[float] = None, venue: str = "Unknown",
+    opp_ast_allowed_l10: float = None, game_total: float = None,
+    spread_abs: float = None, dk_over_price: float = -110,
 ) -> Optional[Dict[str, Any]]:
     if logs is None or logs.empty or len(logs) < MIN_GAMES_REQUIRED:
         return None
@@ -638,14 +640,31 @@ def build_assist_projection_from_logs(
         pts_pm = last5["PTS"].sum() / last5["MIN_FLOAT"].sum() if "PTS" in last5.columns and last5["MIN_FLOAT"].sum() > 0 else 0.0
         tov_pm = last5["TOV"].sum() / last5["MIN_FLOAT"].sum() if "TOV" in last5.columns and last5["MIN_FLOAT"].sum() > 0 else 0.0
         is_home_flag = 1 if venue == "Home" else 0
+
+        # V2: min_trend_l5 — slope of last 5 games minutes
+        l5_mins = df["MIN_FLOAT"].values[-5:]
+        if len(l5_mins) >= 3:
+            import numpy as _np
+            min_trend = float(_np.polyfit(range(len(l5_mins)), l5_mins, 1)[0])
+        else:
+            min_trend = 0.0
+
+        # V2: pred_minus_line uses regression estimate (exp_ast), dk_implied_over_prob from dk_over_price
         pred_minus = exp_ast - market_line
-        line_minus_l10 = market_line - (r10 * proj_min)
+        dk_implied_prob = (-dk_over_price) / (-dk_over_price + 100) if dk_over_price < 0 else 100 / (dk_over_price + 100) if dk_over_price > 0 else 0.5
+
         xgb_features = [[
             proj_min, r5, r10, rs, ast_std,
             fga_pm, pts_pm, tov_pm,
             team_pace, opponent_pace, opponent_ast_allowed,
             rest, is_home_flag, 1 if rest <= 1 else 0, len(df),
-            market_line, pred_minus, line_minus_l10,
+            # V2 regression features
+            opp_ast_allowed_l10 if opp_ast_allowed_l10 is not None else opponent_ast_allowed,
+            game_total if game_total is not None else 225.0,
+            spread_abs if spread_abs is not None else 5.0,
+            min_trend,
+            # Binary classifier features
+            market_line, pred_minus, dk_implied_prob, dk_over_price,
         ]]
         try:
             prob_over = float(xgb_model.predict_proba(xgb_features)[0, 1])
