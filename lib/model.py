@@ -797,6 +797,7 @@ def build_projection_rows(
                 "book": odds.get("book", "Unknown"), "market": odds.get("market", MARKET),
                 "over_odds": f"+{oo}" if isinstance(oo, (int, float)) and oo > 0 else str(oo),
                 "under_odds": f"+{uo}" if isinstance(uo, (int, float)) and uo > 0 else str(uo),
+                "prob_source": proj.get("prob_source", "unknown"),
             })
 
     rows.sort(key=lambda x: abs(x["best_edge"]), reverse=True)
