@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EdgeFinder PRO - Backtest</title>
+    <title>CogniVault Labs | EdgeFinder Backtest</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root{--bg:#0B0F15;--card:#131921;--card-2:#0f172a;--border:#1e2a3a;--border-subtle:#16202e;--text:#E2E8F0;--dim:#64748B;--green:#00E676;--green-dim:rgba(0,230,118,.12);--green-border:rgba(0,230,118,.25);--red:#FF5252;--red-dim:rgba(255,82,82,.12);--amber:#FFD740;--amber-dim:rgba(255,215,64,.12);--amber-border:rgba(255,215,64,.25);--cyan:#00E5FF;--purple:#E040FB;--font-ui:'Outfit',-apple-system,sans-serif;--font-mono:'IBM Plex Mono',monospace}
@@ -33,10 +33,16 @@
         .ef-loading{display:flex;align-items:center;justify-content:center;gap:8px;padding:48px;color:var(--dim)}
         .ef-spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
         @media(max-width:900px){.ef-metrics{grid-template-columns:repeat(2,1fr)}.ef-cal-grid{grid-template-columns:repeat(2,1fr)}}
+
+        /* Brand suffix & CogniVaultLabs credit */
+        .ef-brand{display:flex;flex-direction:column;gap:1px}
+        .ef-pro-suffix{font-style:normal;font-weight:500;color:var(--dim);font-size:1rem}
+        .ef-brand-sub{font-size:.62rem;color:var(--dim);font-weight:500;text-transform:uppercase;letter-spacing:.08em}
+        .cv-by-link{color:#818CF8;text-decoration:none;font-weight:700}.cv-by-link:hover{color:#A5B4FC}
     </style>
 </head>
 <body>
-    <header class="ef-header"><div class="ef-header-inner"><div class="ef-header-left"><div class="ef-logo">E</div><div class="ef-brand-name">Edge<span>Finder</span> Backtest</div></div><a href="index.html" class="ef-nav-link">Dashboard</a></div></header>
+    <header class="ef-header"><div class="ef-header-inner"><div class="ef-header-left"><div class="ef-logo">E</div><div class="ef-brand"><div class="ef-brand-name">Edge<span>Finder</span> <em class="ef-pro-suffix">- Pro</em></div><div class="ef-brand-sub">Assist/Rebound ML &nbsp;·&nbsp; by <a href="https://cognivaultlabs.com" class="cv-by-link" target="_blank" rel="noopener">CogniVaultLabs</a></div></div></div><a href="index.html" class="ef-nav-link">Dashboard</a></div></header>
     <main class="ef-page">
         <div id="metricsSection" style="display:none"></div>
         <div id="calSection" style="display:none"></div>
