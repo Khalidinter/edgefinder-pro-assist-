@@ -276,7 +276,7 @@
                     <input id="rbSearchInput" class="ef-input" type="text" placeholder="Search player or team...">
                     <select id="rbSortSelect" class="ef-select">
                         <option value="best_edge-desc">Best Edge</option><option value="best_ev-desc">Best EV</option>
-                        <option value="over_prob-desc">Model Over %</option><option value="expected_reb-desc">Expected Reb</option>
+                        <option value="over_prob-desc">Model Over %</option><option value="expected_reb-desc">L5 Proj</option>
                         <option value="player-asc">Player A-Z</option>
                     </select>
                 </section>
@@ -285,12 +285,16 @@
                     <div id="rbProjLoading" class="ef-loading"><div class="ef-spinner" style="border-top-color:var(--purple)"></div>Fetching rebound projections...</div>
                     <div id="rbProjContainer" style="display:none"><div class="ef-table-scroll">
                         <table class="ef-table" style="min-width:900px"><thead><tr>
-                            <th>Player</th><th>Matchup</th><th class="num">Exp Reb</th><th class="num">Line</th>
-                            <th class="num">Diff</th><th class="num">Model %</th><th class="num">Mkt %</th><th class="num">Edge</th>
+                            <th>Player</th><th>Matchup</th>
+                            <th class="num" title="Naive L5-rolling projection (rebounds/min &times; proj minutes). Informational only &mdash; the classifier uses 25 features, not just this.">L5 Proj</th>
+                            <th class="num">Line</th>
+                            <th class="num" title="L5 Proj minus Line. Directional hint only; Signal column is driven by the classifier.">Diff</th>
+                            <th class="num" title="XGB classifier P(over the line). This is the authoritative probability &mdash; Signal and Edge are derived from it.">Model %</th>
+                            <th class="num">Mkt %</th><th class="num">Edge</th>
                             <th class="num">EV</th><th>Signal</th><th class="num">Kelly</th>
                         </tr></thead><tbody id="rbProjBody"></tbody></table>
                     </div>
-                    <div class="ef-footer"><span style="color:var(--dim);font-size:.62rem">Model: XGB rebound binary classifier (25 features) &middot; Edge = Model % − Market % &middot; Retrained weekly</span></div>
+                    <div class="ef-footer"><span style="color:var(--dim);font-size:.62rem">Model: XGB rebound binary classifier (25 features) &middot; Edge = Model % − Market % &middot; <b>L5 Proj</b> is a naive rolling-average projection shown for context &mdash; <b>Model %</b> is what the classifier actually outputs, and can disagree with L5 Proj when matchup, pace, or opp rebounding features push the probability the other way.</span></div>
                     </div>
                     <div id="rbProjEmpty" class="ef-empty" style="display:none">No rebound projections available. Waiting for daily refresh.</div>
                 </section>
@@ -303,12 +307,23 @@ const SB_URL = "https://jnirimzrhunjdtyvkhtt.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuaXJpbXpyaHVuamR0eXZraHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2OTE3MjUsImV4cCI6MjA5MDI2NzcyNX0.t5qmr1JdCu_FbHvT0S6uzhCPgplnE2LiaETKiXEyhdI";
 const HEADERS = { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Accept-Profile": "public" };
 
+// Both backend (datetime.now(timezone.utc)) and frontend use UTC so the
+// prediction_date key matches end-to-end. Do not change to local time without
+// also updating the Python paper-trade scripts.
 function today() { return new Date().toISOString().split("T")[0]; }
 
 async function sbGet(table, params = "") {
-    const res = await fetch(`${SB_URL}/rest/v1/${table}?${params}`, { headers: HEADERS });
-    if (!res.ok) return [];
-    return res.json();
+    try {
+        const res = await fetch(`${SB_URL}/rest/v1/${table}?${params}`, { headers: HEADERS });
+        if (!res.ok) {
+            console.error(`sbGet ${table} failed: ${res.status} ${res.statusText}`);
+            return [];
+        }
+        return await res.json();
+    } catch (err) {
+        console.error(`sbGet ${table} network error:`, err);
+        return [];
+    }
 }
 
 // ── Tab switching ──
@@ -394,20 +409,39 @@ function americanToImplied(odds) {
     return odds < 0 ? Math.abs(odds) / (Math.abs(odds) + 100) : 100 / (odds + 100);
 }
 
+function dedupResolved(rows) {
+    // Deduplicate resolved trades by (prediction_date, player_id) — some rows
+    // were double-inserted before the UNIQUE constraint existed. Keeps earliest
+    // duplicate deterministically by id ascending. No-op once DB is clean.
+    const seen = new Set();
+    return [...rows]
+        .sort((a, b) => (a.id || "").localeCompare(b.id || ""))
+        .filter(r => {
+            const k = `${r.prediction_date}|${r.player_id ?? r.player}`;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        });
+}
+
 function renderSystem(prefix, todayRows, resolvedRows) {
     const isAst = prefix === "ast";
 
-    // Accumulated metrics
-    if (resolvedRows.length > 0) {
-        const wins = resolvedRows.filter(r => isAst ? r.under_hit : r.under_hit).length;
-        const pnl = resolvedRows.reduce((s, r) => s + (r.pnl || 0), 0);
-        const roi = pnl / (resolvedRows.length * 100) * 100;
-        const days = new Set(resolvedRows.map(r => r.prediction_date)).size;
+    // Use the deduplicated set for all aggregate metrics so duplicate DB rows
+    // don't inflate PnL / hit rate / bet count / day count.
+    const resolvedUniq = dedupResolved(resolvedRows);
 
-        document.getElementById(`${prefix}Bets`).textContent = resolvedRows.length;
+    // Accumulated metrics
+    if (resolvedUniq.length > 0) {
+        const wins = resolvedUniq.filter(r => isAst ? r.under_hit : r.under_hit).length;
+        const pnl = resolvedUniq.reduce((s, r) => s + (r.pnl || 0), 0);
+        const roi = pnl / (resolvedUniq.length * 100) * 100;
+        const days = new Set(resolvedUniq.map(r => r.prediction_date)).size;
+
+        document.getElementById(`${prefix}Bets`).textContent = resolvedUniq.length;
         const hitEl = document.getElementById(`${prefix}Hit`);
-        hitEl.textContent = (wins / resolvedRows.length * 100).toFixed(1) + "%";
-        hitEl.className = `ef-metric-value ${wins / resolvedRows.length > 0.54 ? "green" : "red"}`;
+        hitEl.textContent = (wins / resolvedUniq.length * 100).toFixed(1) + "%";
+        hitEl.className = `ef-metric-value ${wins / resolvedUniq.length > 0.54 ? "green" : "red"}`;
         const pnlEl = document.getElementById(`${prefix}Pnl`);
         pnlEl.textContent = `$${pnl >= 0 ? "+" : ""}${pnl.toFixed(0)}`;
         pnlEl.className = `ef-metric-value ${pnl >= 0 ? "green" : "red"}`;
@@ -460,33 +494,37 @@ function renderSystem(prefix, todayRows, resolvedRows) {
         }).join("");
     }
 
-    // Resolved bets (recent)
+    // Resolved bets (recent) — render from deduped set so each date+player
+    // appears once, regardless of duplicate rows in the DB.
     const rBody = document.getElementById(`${prefix}ResolvedBody`);
     const rEmpty = document.getElementById(`${prefix}ResolvedEmpty`);
     const rCount = document.getElementById(`${prefix}ResolvedCount`);
-    if (resolvedRows.length > 0 && rCount) {
+    if (resolvedUniq.length > 0 && rCount) {
         const yd = new Date(); yd.setDate(yd.getDate() - 1);
         const ydStr = yd.toISOString().split('T')[0];
-        const ydRows = resolvedRows.filter(r => r.prediction_date === ydStr);
+        const ydRows = resolvedUniq.filter(r => r.prediction_date === ydStr);
         if (ydRows.length > 0) {
             const ydHits = ydRows.filter(r => r.under_hit).length;
             rCount.textContent = `Yesterday: ${ydHits}/${ydRows.length} hit`;
         }
     }
-    if (resolvedRows.length === 0) { rEmpty.style.display = "block"; rBody.innerHTML = ""; }
+    if (resolvedUniq.length === 0) { rEmpty.style.display = "block"; rBody.innerHTML = ""; }
     else {
         rEmpty.style.display = "none";
-        let cumPnl = resolvedRows.reduce((s, r) => s + (r.pnl || 0), 0);
-        // Reverse to compute cumulative from oldest
-        const reversed = [...resolvedRows].reverse();
+        // Sort ascending (oldest first) for cumulative running total, then
+        // render descending (newest first) for display.
+        const asc = [...resolvedUniq].sort((a, b) =>
+            (a.prediction_date || "").localeCompare(b.prediction_date || "")
+            || (a.id || "").localeCompare(b.id || ""));
         let running = 0;
         const cumMap = {};
-        reversed.forEach(r => { running += (r.pnl || 0); cumMap[r.prediction_date + r.player] = running; });
+        asc.forEach(r => { running += (r.pnl || 0); cumMap[r.id] = running; });
+        const desc = [...asc].reverse();
 
-        rBody.innerHTML = resolvedRows.slice(0, 50).map(r => {
+        rBody.innerHTML = desc.slice(0, 50).map(r => {
             const hit = isAst ? r.under_hit : r.under_hit;
             const actual = isAst ? r.actual_ast : r.actual_reb;
-            const cum = cumMap[r.prediction_date + r.player] || 0;
+            const cum = cumMap[r.id] ?? 0;
             return `<tr>
                 <td style="font-family:var(--font-mono);font-size:.72rem;color:var(--dim)">${r.prediction_date}</td>
                 <td>${r.player}</td>

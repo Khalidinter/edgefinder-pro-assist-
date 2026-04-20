@@ -113,6 +113,10 @@ def main():
             "under_price": int(under_price) if under_price else None,
             "home_team": feat_row.get("home_team", ""),
             "away_team": feat_row.get("away_team", ""),
+            # Real team/opponent for this player (fixes S1-9: previously
+            # save_rebound_projections assumed every player was on home team).
+            "team_abbr": feat_row.get("_team_abbr", ""),
+            "opp_abbr": feat_row.get("_opp_abbr", ""),
             "over_prob": round(over_prob * 100, 1),
             "dk_implied_over": round(dk_implied_over * 100, 1),
             "edge_over": edge_over,

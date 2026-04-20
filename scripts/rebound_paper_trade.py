@@ -24,6 +24,7 @@ from lib.backtest_utils import (
     get_project_root, ensure_dirs,
     american_to_implied, american_to_decimal, payout_at_odds,
 )
+from lib.db import save_run_log
 from lib.rebound_config import BINARY_FEATURE_COLS
 from scripts.rebound_feature_engineering import DK_TO_NBA_NAME_ALIAS
 
@@ -68,10 +69,62 @@ def _safe_min(v):
 
 
 def norm_name(n):
-    """Normalize player name for matching."""
+    """Normalize player name for matching (mirrors paper_trade.norm)."""
     if not n:
         return ""
-    return str(n).lower().strip()
+    s = str(n).lower().strip()
+    s = re.sub(r"\b(jr|sr|ii|iii|iv|v)\b\.?", "", s)
+    s = s.replace("-", " ")
+    s = re.sub(r"[^a-z\s]", "", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def build_opp_team_lookup():
+    """Aggregate historical game logs to team-game totals, compute rolling L10 with shift(1).
+
+    Mirrors the training logic in scripts/rebound_feature_engineering.py so the
+    live inference features match what the classifier was trained on.
+
+    Returns dict keyed by team_abbr -> latest (fga_l10, fg_pct_l10, oreb_rate_l10, team_fga_l5).
+    Falls back to None if the game logs parquet is missing.
+    """
+    gl_path = ROOT / "data" / "raw" / "all_game_logs.parquet"
+    if not gl_path.exists():
+        logger.warning("all_game_logs.parquet missing - opp_*_l10 features will fall back to defaults")
+        return None
+
+    logs = pd.read_parquet(gl_path)
+    logs["GAME_DATE"] = pd.to_datetime(logs["GAME_DATE"])
+
+    team_game = logs.groupby(["TEAM_ABBREVIATION", "GAME_DATE", "GAME_ID"]).agg(
+        T_FGA=("FGA", "sum"),
+        T_FGM=("FGM", "sum"),
+        T_REB=("REB", "sum"),
+        T_OREB=("OREB", "sum"),
+    ).reset_index()
+
+    team_game["T_FG_PCT"] = team_game["T_FGM"] / team_game["T_FGA"].replace(0, np.nan)
+    team_game["T_OREB_RATE"] = team_game["T_OREB"] / team_game["T_REB"].replace(0, np.nan)
+    team_game = team_game.sort_values(["TEAM_ABBREVIATION", "GAME_DATE"]).reset_index(drop=True)
+
+    tg = team_game.groupby("TEAM_ABBREVIATION")
+    team_game["_fga_l10"] = tg["T_FGA"].transform(lambda x: x.shift(1).rolling(10, min_periods=5).mean())
+    team_game["_fg_pct_l10"] = tg["T_FG_PCT"].transform(lambda x: x.shift(1).rolling(10, min_periods=5).mean())
+    team_game["_oreb_rate_l10"] = tg["T_OREB_RATE"].transform(lambda x: x.shift(1).rolling(10, min_periods=5).mean())
+    team_game["_team_fga_l5"] = tg["T_FGA"].transform(lambda x: x.shift(1).rolling(5, min_periods=3).mean())
+
+    # Latest available row per team (most-recent game)
+    latest = team_game.sort_values("GAME_DATE").groupby("TEAM_ABBREVIATION").tail(1)
+    lookup = {}
+    for _, r in latest.iterrows():
+        lookup[r["TEAM_ABBREVIATION"]] = {
+            "opp_fga_l10": float(r["_fga_l10"]) if pd.notna(r["_fga_l10"]) else 85.0,
+            "opp_fg_pct_l10": float(r["_fg_pct_l10"]) if pd.notna(r["_fg_pct_l10"]) else 0.46,
+            "opp_oreb_rate_l10": float(r["_oreb_rate_l10"]) if pd.notna(r["_oreb_rate_l10"]) else 0.25,
+            "team_fga_l5": float(r["_team_fga_l5"]) if pd.notna(r["_team_fga_l5"]) else 85.0,
+        }
+    logger.info("Built opponent L10 lookup for %d teams", len(lookup))
+    return lookup
 
 
 # ── Load Model ──
@@ -173,6 +226,9 @@ def build_today_features(lines_df: pd.DataFrame) -> pd.DataFrame:
     opp_reb_map = teams.set_index(["team_abbr", "season"])["opp_reb_allowed"].to_dict() \
         if "opp_reb_allowed" in teams.columns else {}
 
+    # Real opponent rolling L10 features (fixes S1-4: previously used player's own stats)
+    opp_team_lookup = build_opp_team_lookup() or {}
+
     results = []
 
     for _, row in lines_df.iterrows():
@@ -212,7 +268,8 @@ def build_today_features(lines_df: pd.DataFrame) -> pd.DataFrame:
 
             features = _compute_rebound_features(
                 logs, row["line"], row.get("over_price", -110),
-                row.get("under_price", -110), season, pace_map, opp_reb_map
+                row.get("under_price", -110), season, pace_map, opp_reb_map,
+                opp_team_lookup,
             )
             if features is None:
                 continue
@@ -237,6 +294,7 @@ def _compute_rebound_features(
     logs: pd.DataFrame, line: float,
     over_price: float, under_price: float,
     season: str, pace_map: dict, opp_reb_map: dict,
+    opp_team_lookup: dict = None,
 ) -> dict:
     """Compute all 25 binary classifier features from game logs (prior games only)."""
     if len(logs) < 5:
@@ -294,11 +352,16 @@ def _compute_rebound_features(
     opp_pace = pace_map.get((opp_abbr, season), 100.0)
     opp_reb_allowed = opp_reb_map.get((opp_abbr, season), 44.0)
 
-    # Opponent rolling features (approximate from logs if available)
-    opp_fga_l10 = float(fga[-10:].mean()) if len(fga) >= 5 else 85.0
-    opp_fg_pct_l10 = float(fgm[-10:].sum() / fga[-10:].sum()) if fga[-10:].sum() > 0 else 0.46
-    opp_oreb_rate_l10 = float(oreb[-10:].sum() / reb[-10:].sum()) if reb[-10:].sum() > 0 else 0.25
-    team_fga_l5 = float(fga[-5:].mean()) if len(fga) >= 3 else 85.0
+    # Opponent rolling features — look up the OPPONENT team's trailing-L10,
+    # not the player's own stats (S1-4 fix). Mirrors training pipeline.
+    opp_stats = (opp_team_lookup or {}).get(opp_abbr, {})
+    opp_fga_l10 = opp_stats.get("opp_fga_l10", 85.0)
+    opp_fg_pct_l10 = opp_stats.get("opp_fg_pct_l10", 0.46)
+    opp_oreb_rate_l10 = opp_stats.get("opp_oreb_rate_l10", 0.25)
+
+    # team_fga_l5 is the player's OWN team's trailing-L5 FGA (team-level)
+    own_stats = (opp_team_lookup or {}).get(team_abbr, {})
+    team_fga_l5 = own_stats.get("team_fga_l5", 85.0)
 
     # Rest days
     dates = logs["GAME_DATE"].values
@@ -337,20 +400,33 @@ def _compute_rebound_features(
         "pred_minus_line": round(pred_minus_line, 2),
         "dk_implied_over_prob": round(dk_implied_over, 4),
         "dk_over_price": float(over_price) if over_price else -110.0,
+        # Non-feature passthroughs (not used by the classifier, but consumed
+        # by save_rebound_projections so away players get the right team/opp).
+        "_team_abbr": team_abbr,
+        "_opp_abbr": opp_abbr,
     }
 
 
 # ── Supabase I/O ──
 
 def save_predictions(predictions: list) -> None:
+    """Upsert predictions on (prediction_date, player_id).
+
+    Idempotent — re-running the same day produces no duplicate rows, provided
+    the rb_paper_trades table has a UNIQUE(prediction_date, player_id) constraint.
+    """
     if not predictions:
         return
+    # Merge-duplicates header turns POST into an upsert keyed by the table's
+    # unique constraint. Without the DB-side constraint this still behaves as
+    # a plain insert, so this change is safe to ship ahead of the migration.
+    upsert_headers = {**SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"}
     for i in range(0, len(predictions), 50):
         r = requests.post(
             f"{SUPABASE_URL}/rest/v1/rb_paper_trades",
-            headers=SB_HEADERS, json=predictions[i:i + 50], timeout=15)
+            headers=upsert_headers, json=predictions[i:i + 50], timeout=15)
         if not r.ok:
-            logger.error("Failed to save predictions: %s", r.text[:200])
+            logger.error("Failed to save predictions: %s %s", r.status_code, r.text[:200])
 
 
 def resolve_predictions() -> None:
@@ -363,11 +439,13 @@ def resolve_predictions() -> None:
         headers=SB_HEADERS, timeout=15)
     if not r.ok or not r.json():
         logger.info("No unresolved rebound predictions for %s", yesterday)
+        save_run_log("rebounds", "resolve", yesterday, predictions_resolved=0)
         return
 
     preds = r.json()
     logger.info("Resolving %d rebound predictions for %s", len(preds), yesterday)
 
+    resolved_count = 0
     from nba_api.stats.endpoints import playergamelogs
     for pred in preds:
         try:
@@ -393,6 +471,7 @@ def resolve_predictions() -> None:
             line = pred["line"]
             under_hit = actual_reb < line
             under_price = pred.get("under_price", -110)
+            # Only compute PnL for rows we actually "bet"; non-bets stay at 0.0
             pnl = payout_at_odds(under_price, 100, under_hit) if pred.get("bet_placed") else 0.0
 
             update = {
@@ -402,16 +481,21 @@ def resolve_predictions() -> None:
                 "resolved": True,
                 "resolved_at": datetime.now(timezone.utc).isoformat(),
             }
-            requests.patch(
+            pr = requests.patch(
                 f"{SUPABASE_URL}/rest/v1/rb_paper_trades",
                 params={"id": f"eq.{pred['id']}"},
                 headers={**SB_HEADERS, "Prefer": "return=minimal"},
                 json=update, timeout=15)
+            if not pr.ok:
+                logger.error("PATCH failed for %s: %s %s", pred.get("player"), pr.status_code, pr.text[:200])
+            else:
+                resolved_count += 1
 
         except Exception as e:
             logger.warning("Failed to resolve %s: %s", pred.get("player"), str(e)[:100])
 
-    logger.info("Rebound resolution complete for %s", yesterday)
+    logger.info("Rebound resolution complete for %s (%d/%d)", yesterday, resolved_count, len(preds))
+    save_run_log("rebounds", "resolve", yesterday, predictions_resolved=resolved_count)
 
 
 def print_report() -> None:
@@ -466,19 +550,30 @@ def main():
 
     # ── Generate today's predictions ──
     logger.info("Rebound paper trading — generating predictions for today")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     model = load_model()
     if model is None:
+        save_run_log("rebounds", "predict", today,
+                     status="error", error_msg="Rebound binary classifier not found")
         return
 
     lines = fetch_todays_rebound_lines()
+    num_events = int(lines["event_id"].nunique()) if not lines.empty else 0
     if lines.empty:
         logger.info("No rebound lines available (no games today?)")
+        save_run_log("rebounds", "predict", today,
+                     events_found=num_events, lines_fetched=0,
+                     predictions_saved=0, bets_placed=0)
         return
 
     features = build_today_features(lines)
     if features.empty:
         logger.info("No features built (all players failed)")
+        save_run_log("rebounds", "predict", today,
+                     events_found=num_events, lines_fetched=len(lines),
+                     predictions_saved=0, bets_placed=0,
+                     status="error", error_msg="All player feature builds failed")
         return
 
     # Predict P(over)
@@ -486,7 +581,6 @@ def main():
     over_probs = model.predict_proba(X)[:, 1]
     under_probs = 1.0 - over_probs
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     predictions = []
 
     for i, (_, row) in enumerate(features.iterrows()):
@@ -522,6 +616,12 @@ def main():
 
     save_predictions(predictions)
     logger.info("Saved %d predictions to Supabase rb_paper_trades", len(predictions))
+
+    save_run_log("rebounds", "predict", today,
+                 events_found=num_events,
+                 lines_fetched=len(lines),
+                 predictions_saved=len(predictions),
+                 bets_placed=len(bets))
 
 
 if __name__ == "__main__":

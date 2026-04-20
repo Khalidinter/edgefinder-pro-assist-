@@ -42,7 +42,8 @@ jobs:
             echo "action=predict" >> $GITHUB_OUTPUT
           fi
 
-      - name: Run predictions
+      # ── Assists pipeline ──
+      - name: Run assist predictions
         if: steps.action.outputs.action == 'predict'
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
@@ -50,7 +51,7 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python scripts/paper_trade.py --threshold 0.60
 
-      - name: Resolve yesterday
+      - name: Resolve yesterday's assists
         if: steps.action.outputs.action == 'resolve'
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
@@ -58,9 +59,40 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python scripts/paper_trade.py --resolve
 
-      - name: Print report
+      - name: Print assist report
         if: steps.action.outputs.action == 'report'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python scripts/paper_trade.py --report
+
+      # ── Rebounds pipeline ──
+      # Run sequentially after assists so a rebound failure never blocks assists.
+      # Duplicate inserts are prevented by the UNIQUE(prediction_date, player_id)
+      # constraint + the merge-duplicates Prefer header, so running from both CI
+      # and the local scheduled task is safe (though wasteful).
+      - name: Run rebound predictions
+        if: steps.action.outputs.action == 'predict'
+        continue-on-error: true
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/rebound_paper_trade.py
+
+      - name: Resolve yesterday's rebounds
+        if: steps.action.outputs.action == 'resolve'
+        continue-on-error: true
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/rebound_paper_trade.py --resolve
+
+      - name: Print rebound report
+        if: steps.action.outputs.action == 'report'
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/rebound_paper_trade.py --report

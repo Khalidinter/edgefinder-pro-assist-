@@ -28,12 +28,14 @@ TARGET_COL = "actual_ast"
 MIN_MINUTES_FILTER = 12.0   # Rolling L5 avg minutes threshold
 MIN_GAMES_FOR_FEATURES = 5  # Minimum prior games to generate features
 
-# ── Season date ranges (regular season approximate) ──
+# ── Season date ranges (regular season + playoffs) ──
+# End dates extended to cover playoffs so backtests, training, and data pulls
+# include post-season games (NBA Finals typically wrap by late June).
 SEASONS_MAP = {
-    "2022-23": {"start": "2022-10-18", "end": "2023-04-09"},
-    "2023-24": {"start": "2023-10-24", "end": "2024-04-14"},
-    "2024-25": {"start": "2024-10-22", "end": "2025-04-13"},
-    "2025-26": {"start": "2025-10-21", "end": "2026-04-12"},
+    "2022-23": {"start": "2022-10-18", "end": "2023-06-12"},
+    "2023-24": {"start": "2023-10-24", "end": "2024-06-17"},
+    "2024-25": {"start": "2024-10-22", "end": "2025-06-22"},
+    "2025-26": {"start": "2025-10-21", "end": "2026-06-30"},
 }
 
 # ── Backtest config defaults ──

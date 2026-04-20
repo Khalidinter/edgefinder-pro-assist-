@@ -53,33 +53,44 @@ def norm(n):
 # ── Isotonic Calibration ──
 def build_isotonic_calibrator():
     """Train isotonic regression on historical walk-forward predictions.
-    Returns (IsotonicRegression, brier_raw, brier_calibrated) or (None, None, None)."""
+
+    Fits on ALL historical walk-forward predictions so production inference
+    uses the maximum signal available. A separate 80/20 split is used only
+    for logging Brier-score improvement (not for fitting the production model).
+
+    Returns (IsotonicRegression, brier_raw, brier_calibrated) or (None, None, None).
+    """
     path = ROOT / "data" / "reports" / "under_signal_predictions.parquet"
     if not path.exists():
         logger.warning("No historical predictions for calibration. Using raw probabilities.")
         return None, None, None
 
-    df = pd.read_parquet(path)
-    # Use first 70% for calibration training
-    df = df.sort_values("game_date").reset_index(drop=True)
-    split = int(len(df) * 0.7)
-    train = df.iloc[:split]
-
+    df = pd.read_parquet(path).sort_values("game_date").reset_index(drop=True)
     # Support both column name variants
     line_col = "synthetic_line" if "synthetic_line" in df.columns else "line"
+    actual_under_all = (df["actual_ast"] < df[line_col]).astype(float).values
+    raw_all = df["prob_under"].values
 
-    raw_under_probs = train["prob_under"].values
-    actual_under = (train["actual_ast"] < train[line_col]).astype(float).values
-
+    # Production calibrator: fit on all data
     iso = IsotonicRegression(y_min=0.01, y_max=0.99)
-    iso.fit(raw_under_probs, actual_under)
+    iso.fit(raw_all, actual_under_all)
 
-    # Verify calibration improvement on validation set
-    val = df.iloc[split:]
-    raw_brier = float(((val["prob_under"] - (val["actual_ast"] < val[line_col]).astype(float)) ** 2).mean())
-    cal_probs = iso.predict(val["prob_under"].values)
-    cal_brier = float(((cal_probs - (val["actual_ast"] < val[line_col]).astype(float)) ** 2).mean())
-    logger.info("Isotonic calibration: raw Brier=%.4f → calibrated Brier=%.4f", raw_brier, cal_brier)
+    # Diagnostic Brier scores on a hold-out split (fit-on-train, score-on-val)
+    # so we can log whether calibration actually helps. This diag-only fit is
+    # NOT the calibrator returned for production use.
+    split = int(len(df) * 0.8)
+    if split >= 100 and len(df) - split >= 50:
+        iso_diag = IsotonicRegression(y_min=0.01, y_max=0.99).fit(
+            raw_all[:split], actual_under_all[:split]
+        )
+        raw_brier = float(((raw_all[split:] - actual_under_all[split:]) ** 2).mean())
+        cal_brier = float(((iso_diag.predict(raw_all[split:]) - actual_under_all[split:]) ** 2).mean())
+        logger.info("Isotonic calibration diag: raw Brier=%.4f → calibrated Brier=%.4f", raw_brier, cal_brier)
+    else:
+        # Too little data for a meaningful split — report in-sample scores only.
+        raw_brier = float(((raw_all - actual_under_all) ** 2).mean())
+        cal_brier = float(((iso.predict(raw_all) - actual_under_all) ** 2).mean())
+        logger.info("Isotonic calibration (in-sample): raw Brier=%.4f → calibrated Brier=%.4f", raw_brier, cal_brier)
 
     return iso, raw_brier, cal_brier
 
@@ -176,6 +187,19 @@ def build_today_features(lines_df: pd.DataFrame) -> pd.DataFrame:
     from nba_api.stats.static import players
 
     season = _current_season()
+
+    # Load real team pace / opponent assists allowed so the classifier sees
+    # the same per-team context it was trained on. Falls back to league-average
+    # constants if the parquet is missing (S1-3 fix).
+    team_pace_map, opp_ast_map = {}, {}
+    try:
+        teams = pd.read_parquet(ROOT / "data" / "raw" / "all_team_stats.parquet")
+        team_pace_map = teams.set_index(["team_abbr", "season"])["pace"].to_dict()
+        if "opp_ast_allowed" in teams.columns:
+            opp_ast_map = teams.set_index(["team_abbr", "season"])["opp_ast_allowed"].to_dict()
+    except Exception as e:
+        logger.warning("Failed to load team stats for pace lookup: %s", e)
+
     results = []
 
     for _, row in lines_df.iterrows():
@@ -204,7 +228,10 @@ def build_today_features(lines_df: pd.DataFrame) -> pd.DataFrame:
                 continue
 
             # Compute features from PRIOR games only
-            features = _compute_features(logs, row["line"])
+            features = _compute_features(
+                logs, row["line"], season=season,
+                team_pace_map=team_pace_map, opp_ast_map=opp_ast_map,
+            )
             if features is None:
                 continue
 
@@ -245,7 +272,10 @@ def _safe_min(v):
 
 
 def _compute_features(logs: pd.DataFrame, line: float,
-                      xgb_regressor=None) -> dict:
+                      xgb_regressor=None,
+                      season: str = None,
+                      team_pace_map: dict = None,
+                      opp_ast_map: dict = None) -> dict:
     """Compute all 18 features from game logs (prior games only)."""
     if len(logs) < 5:
         return None
@@ -284,6 +314,24 @@ def _compute_features(logs: pd.DataFrame, line: float,
     matchup = str(logs.iloc[-1].get("MATCHUP", ""))
     is_home = 0 if "@" in matchup else 1
 
+    # Resolve team / opponent abbreviations from the most recent game row so we
+    # can look up real pace & opp_ast_allowed (S1-3 fix).
+    last_row = logs.iloc[-1]
+    team_abbr = str(last_row.get("TEAM_ABBREVIATION", ""))
+    parts = matchup.replace(" ", "").split("@" if "@" in matchup else "vs.")
+    opp_abbr = ""
+    for p in parts:
+        p = p.strip()
+        if p and p != team_abbr:
+            opp_abbr = p
+            break
+
+    tp_map = team_pace_map or {}
+    oa_map = opp_ast_map or {}
+    team_pace = tp_map.get((team_abbr, season), 100.0) if season else 100.0
+    opp_pace = tp_map.get((opp_abbr, season), 100.0) if season else 100.0
+    opp_ast_allowed = oa_map.get((opp_abbr, season), 25.0) if season else 25.0
+
     # Build regression features first (needed for pred_minus_line)
     reg_features = {
         "proj_minutes": round(proj_min, 1),
@@ -294,9 +342,9 @@ def _compute_features(logs: pd.DataFrame, line: float,
         "fga_per_min_l5": round(fga_pm_l5, 4),
         "pts_per_min_l5": round(pts_pm_l5, 4),
         "tov_per_min_l5": round(tov_pm_l5, 4),
-        "team_pace": 100.0,
-        "opp_pace": 100.0,
-        "opp_ast_allowed": 25.0,
+        "team_pace": float(team_pace),
+        "opp_pace": float(opp_pace),
+        "opp_ast_allowed": float(opp_ast_allowed),
         "rest_days": rest,
         "is_home": is_home,
         "b2b_flag": 1 if rest <= 1 else 0,
@@ -325,15 +373,23 @@ def _compute_features(logs: pd.DataFrame, line: float,
 
 # ── Save Predictions to Supabase ──
 def save_predictions(predictions: list) -> None:
-    """Save paper trade predictions to am_paper_trades table."""
+    """Upsert paper trade predictions to am_paper_trades.
+
+    Idempotent — re-running the same day produces no duplicate rows, provided
+    the am_paper_trades table has a UNIQUE(prediction_date, player_id) constraint.
+    """
     if not predictions:
         return
+    # Merge-duplicates header turns POST into an upsert keyed by the table's
+    # unique constraint. Safe to ship ahead of the DB migration (behaves as
+    # plain insert until the constraint is added).
+    upsert_headers = {**SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"}
     for i in range(0, len(predictions), 50):
         r = requests.post(
             f"{SUPABASE_URL}/rest/v1/am_paper_trades",
-            headers=SB_HEADERS, json=predictions[i:i+50], timeout=15)
+            headers=upsert_headers, json=predictions[i:i+50], timeout=15)
         if not r.ok:
-            logger.error("Failed to save predictions: %s", r.text[:200])
+            logger.error("Failed to save predictions: %s %s", r.status_code, r.text[:200])
 
 
 def resolve_predictions() -> None:
@@ -353,6 +409,7 @@ def resolve_predictions() -> None:
 
     preds = r.json()
     logger.info("Resolving %d predictions for %s", len(preds), yesterday)
+    resolved_count = 0
 
     # Fetch actual results from nba_api
     from nba_api.stats.endpoints import playergamelogs
@@ -380,8 +437,13 @@ def resolve_predictions() -> None:
             line = pred["line"]
             under_hit = actual_ast < line
             under_price = pred.get("under_price", -110)
-            dec = american_to_decimal(under_price) if under_price else 1.91
-            pnl = 100 * (dec - 1) if under_hit else -100
+            # Only compute PnL for actual bets; non-bet rows stay at 0 so the
+            # dashboard's cumulative PnL doesn't double-count skipped picks.
+            if pred.get("bet_placed"):
+                dec = american_to_decimal(under_price) if under_price else 1.91
+                pnl = 100 * (dec - 1) if under_hit else -100
+            else:
+                pnl = 0.0
 
             # Update in Supabase
             update = {
@@ -391,17 +453,21 @@ def resolve_predictions() -> None:
                 "resolved": True,
                 "resolved_at": datetime.now(timezone.utc).isoformat(),
             }
-            requests.patch(
+            pr = requests.patch(
                 f"{SUPABASE_URL}/rest/v1/am_paper_trades",
                 params={"id": f"eq.{pred['id']}"},
                 headers={**SB_HEADERS, "Prefer": "return=minimal"},
                 json=update, timeout=15)
+            if not pr.ok:
+                logger.error("PATCH failed for %s: %s %s", pred.get("player"), pr.status_code, pr.text[:200])
+            else:
+                resolved_count += 1
 
         except Exception as e:
             logger.warning("Failed to resolve %s: %s", pred.get("player"), str(e)[:100])
 
-    logger.info("Resolution complete for %s", yesterday)
-    save_run_log("assists", "resolve", yesterday, predictions_resolved=len(preds))
+    logger.info("Resolution complete for %s (%d/%d)", yesterday, resolved_count, len(preds))
+    save_run_log("assists", "resolve", yesterday, predictions_resolved=resolved_count)
 
 
 def print_report() -> None:

@@ -73,7 +73,20 @@ def save_run_log(pipeline: str, run_type: str, prediction_date: str, **kwargs) -
 def get_cached_projections() -> List[Dict]:
     now = datetime.now(timezone.utc).isoformat()
     data = _get("am_projections", f"expires_at=gte.{now}&select=model_data&order=created_at.desc&limit=50")
-    return [json.loads(r["model_data"]) if isinstance(r["model_data"], str) else r["model_data"] for r in data]
+    out = []
+    for r in data:
+        md = r.get("model_data")
+        if md is None:
+            continue
+        if isinstance(md, dict):
+            out.append(md)
+            continue
+        try:
+            out.append(json.loads(md))
+        except (json.JSONDecodeError, TypeError) as e:
+            # One corrupted row shouldn't blow up the whole projections page
+            logger.warning("Skipping am_projections row with invalid model_data: %s", e)
+    return out
 
 
 def save_projections(rows: List[Dict], summary: Dict, metrics: Dict) -> None:
@@ -138,10 +151,17 @@ def save_rebound_projections(rows: List[Dict]) -> None:
     expires = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
     records = []
     for r in rows:
+        # S1-9 fix: prefer the row's own team_abbr/opp_abbr (computed per
+        # player in _compute_rebound_features). Fall back to the home/away
+        # pair so historical callers keep working — but that fallback is
+        # still wrong for away players. Upstream callers should pass real
+        # team_abbr/opp_abbr.
+        team = r.get("team_abbr") or r.get("home_team", "")
+        opp = r.get("opp_abbr") or r.get("away_team", "")
         records.append({
             "player": r.get("player"),
-            "team": r.get("home_team", ""),
-            "opponent": r.get("away_team", ""),
+            "team": team,
+            "opponent": opp,
             "market_line": r.get("line"),
             "expected_reb": r.get("expected_reb"),
             "over_prob": r.get("over_prob"),
