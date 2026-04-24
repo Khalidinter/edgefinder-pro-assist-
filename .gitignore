@@ -10,3 +10,4 @@ models/
 *.parquet
 *.pkl
 *.json.model
+supabase/.temp/

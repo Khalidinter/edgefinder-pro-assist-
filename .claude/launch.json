@@ -6,6 +6,18 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8099", "-d", "docs"],
       "port": 8099
+    },
+    {
+      "name": "assists",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8091", "-d", "sites/edgefinder-assists"],
+      "port": 8091
+    },
+    {
+      "name": "rebounds",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8092", "-d", "sites/edgefinder-rebounds"],
+      "port": 8092
     }
   ]
 }

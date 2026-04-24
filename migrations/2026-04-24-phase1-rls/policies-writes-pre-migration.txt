@@ -1,0 +1,46 @@
+# Pre-Phase-1 write-capable policy snapshot
+# Captured: 2026-04-24 (pre-migration)
+# Query:
+#   SELECT tablename, policyname, cmd, roles::text AS roles
+#   FROM pg_policies
+#   WHERE schemaname='public' AND cmd IN ('INSERT','UPDATE','DELETE','ALL')
+#   ORDER BY tablename, policyname;
+#
+# Total rows: 21
+# Phase 1 drops 10 anon-role-specific policies; 11 TO PUBLIC ALL policies remain
+# for Phase 2.
+# ----------------------------------------------------------------------
+
+tablename              | policyname                        | cmd    | roles
+-----------------------+-----------------------------------+--------+----------
+am_backtest_results    | am_write_bt_res                   | INSERT | {anon}     <- Phase 1 DROP
+am_backtest_results    | service_write_backtest_results    | ALL    | {public}
+am_backtest_runs       | am_write_bt_runs                  | INSERT | {anon}     <- Phase 1 DROP
+am_backtest_runs       | service_write_backtest_runs       | ALL    | {public}
+am_game_logs           | am_write_logs                     | INSERT | {anon}     <- Phase 1 DROP
+am_game_logs           | service_write_game_logs           | ALL    | {public}
+am_paper_trades        | pt_update                         | UPDATE | {anon}     <- Phase 1 DROP
+am_paper_trades        | pt_write                          | INSERT | {anon}     <- Phase 1 DROP
+am_player_tracking     | am_write_tracking                 | INSERT | {anon}     <- Phase 1 DROP
+am_player_tracking     | service_write_tracking            | ALL    | {public}
+am_projections         | am_delete_proj                    | DELETE | {anon}     <- Phase 1 DROP
+am_projections         | am_write_proj                     | INSERT | {anon}     <- Phase 1 DROP
+am_projections         | service_write_projections         | ALL    | {public}
+am_team_context        | am_write_context                  | INSERT | {anon}     <- Phase 1 DROP
+am_team_context        | service_write_team_context        | ALL    | {public}
+closing_prices         | service_role_all                  | ALL    | {public}
+kv_store               | service_role_all                  | ALL    | {public}
+pipeline_runs          | anon insert pipeline_runs         | INSERT | {anon}     <- Phase 1 DROP
+rb_paper_trades        | Allow all for service role        | ALL    | {public}
+rb_projections         | Service write rb_projections      | ALL    | {public}
+server_runs            | service_role_all                  | ALL    | {public}
+
+# ----------------------------------------------------------------------
+# End-state projection (after Phase 1 commit):
+#   - 11 rows remain (all TO PUBLIC ALL)
+#   - Fully closed for anon writes: am_paper_trades, pipeline_runs
+#   - Partially closed (TO PUBLIC still allows anon): am_backtest_results,
+#     am_backtest_runs, am_game_logs, am_player_tracking, am_projections,
+#     am_team_context
+#   - Untouched by Phase 1: closing_prices, kv_store, rb_paper_trades,
+#     rb_projections, server_runs

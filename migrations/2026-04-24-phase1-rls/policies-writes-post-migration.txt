@@ -1,0 +1,41 @@
+# Post-Phase-1 write-capable policy snapshot
+# Captured: 2026-04-24T11:14:16Z
+# Query:
+#   SELECT tablename, policyname, cmd, roles::text AS roles
+#   FROM pg_policies
+#   WHERE schemaname='public' AND cmd IN ('INSERT','UPDATE','DELETE','ALL')
+#   ORDER BY tablename, policyname;
+#
+# Total rows: 11 (all {public} TO PUBLIC ALL policies)
+# Phase 2 target set — these remain live for anon until Phase 2 drops them.
+# ----------------------------------------------------------------------
+
+tablename              | policyname                     | cmd | roles
+-----------------------+--------------------------------+-----+----------
+am_backtest_results    | service_write_backtest_results | ALL | {public}
+am_backtest_runs       | service_write_backtest_runs    | ALL | {public}
+am_game_logs           | service_write_game_logs        | ALL | {public}
+am_player_tracking     | service_write_tracking         | ALL | {public}
+am_projections         | service_write_projections      | ALL | {public}
+am_team_context        | service_write_team_context     | ALL | {public}
+closing_prices         | service_role_all               | ALL | {public}
+kv_store               | service_role_all               | ALL | {public}
+rb_paper_trades        | Allow all for service role     | ALL | {public}
+rb_projections         | Service write rb_projections   | ALL | {public}
+server_runs            | service_role_all               | ALL | {public}
+
+# ----------------------------------------------------------------------
+# Diff vs pre-migration (policies-writes-pre-migration.txt):
+#   Removed: 10 rows, all roles={anon}
+#     am_backtest_results/am_write_bt_res
+#     am_backtest_runs/am_write_bt_runs
+#     am_game_logs/am_write_logs
+#     am_paper_trades/pt_update
+#     am_paper_trades/pt_write
+#     am_player_tracking/am_write_tracking
+#     am_projections/am_delete_proj
+#     am_projections/am_write_proj
+#     am_team_context/am_write_context
+#     pipeline_runs/anon insert pipeline_runs
+#   Unchanged: 11 rows, all roles={public}
+#   Other deltas: none.

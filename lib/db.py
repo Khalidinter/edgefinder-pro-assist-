@@ -8,9 +8,12 @@ import requests
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
-from lib.config import SUPABASE_URL, SUPABASE_KEY, SCHEMA, logger
+from lib.config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_ROLE_KEY, SCHEMA, logger
 
 BASE = f"{SUPABASE_URL}/rest/v1"
+
+# Anon headers — used for reads. Module-level so read-only consumers can import
+# this file without SUPABASE_SERVICE_ROLE_KEY being set.
 HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -21,6 +24,25 @@ HEADERS = {
 }
 
 
+def _service_headers() -> Dict[str, str]:
+    """Build service_role headers. Called lazily by write paths so an anon-only
+    consumer can import this module without the service_role key being set."""
+    if not SUPABASE_SERVICE_ROLE_KEY:
+        raise RuntimeError(
+            "SUPABASE_SERVICE_ROLE_KEY is not set. Required for write operations. "
+            "Set it in .env (local) or GitHub Actions secrets (CI). "
+            "Get the key from Supabase dashboard → Settings → API → service_role."
+        )
+    return {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+        "Accept-Profile": "public",
+        "Content-Profile": "public",
+        "Prefer": "return=representation",
+    }
+
+
 def _get(table: str, params: str = "") -> List[Dict]:
     url = f"{BASE}/{table}?{params}" if params else f"{BASE}/{table}"
     res = requests.get(url, headers=HEADERS, timeout=15)
@@ -29,7 +51,7 @@ def _get(table: str, params: str = "") -> List[Dict]:
 
 
 def _post(table: str, data: List[Dict], upsert_conflict: str = None) -> None:
-    h = dict(HEADERS)
+    h = _service_headers()
     if upsert_conflict:
         h["Prefer"] = "resolution=merge-duplicates,return=minimal"
     else:
@@ -43,7 +65,7 @@ def _post(table: str, data: List[Dict], upsert_conflict: str = None) -> None:
 
 def _delete(table: str, params: str) -> None:
     url = f"{BASE}/{table}?{params}"
-    res = requests.delete(url, headers=HEADERS, timeout=15)
+    res = requests.delete(url, headers=_service_headers(), timeout=15)
     res.raise_for_status()
 
 
@@ -62,7 +84,7 @@ def save_run_log(pipeline: str, run_type: str, prediction_date: str, **kwargs) -
         if kwargs.get(key) is not None:
             row[key] = kwargs[key]
     try:
-        h = dict(HEADERS)
+        h = _service_headers()
         h["Prefer"] = "return=minimal"
         requests.post(f"{BASE}/pipeline_runs", headers=h, json=row, timeout=10)
     except Exception as e:
@@ -181,7 +203,7 @@ def save_rebound_projections(rows: List[Dict]) -> None:
 
 # ── Backtest Results ──
 def save_backtest_run(run_summary: Dict, results: List[Dict]) -> str:
-    h = dict(HEADERS)
+    h = _service_headers()
     h["Prefer"] = "return=representation"
     url = f"{BASE}/am_backtest_runs"
     res = requests.post(url, headers=h, json=[{

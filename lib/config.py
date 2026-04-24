@@ -7,6 +7,7 @@ load_dotenv()
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
 SPORT = "basketball_nba"
 MARKET = "player_assists"

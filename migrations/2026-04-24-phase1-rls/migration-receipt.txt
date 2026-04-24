@@ -1,0 +1,144 @@
+# Phase 1 Migration Receipt
+# ======================================================================
+# Migration name: phase1_drop_anon_write_policies_2026_04_24
+# Started:   2026-04-24T11:07:40Z
+# Finished:  2026-04-24T11:14:16Z
+# Duration:  ~6m 36s (includes smoke tests)
+# Project:   jnirimzrhunjdtyvkhtt
+# Rollback:  data/backup/2026-04-23/policies.sql (CREATE POLICY statements)
+# ======================================================================
+
+
+## Scope
+
+Phase 1 drops the 10 anon-role-specific write policies (INSERT/UPDATE/DELETE
+on {anon}) to reduce the public schema's anon write surface. Phase 2 (not
+in this migration) will drop the 11 TO-PUBLIC-ALL policies which are the
+actual RLS exposure — Phase 1 alone fully closes only am_paper_trades and
+pipeline_runs; the other 6 affected tables remain writable by anon via
+their surviving {public} ALL policies until Phase 2 lands.
+
+
+## Pre-migration state
+
+- Policies (all cmds) in public schema:   36
+- Write-capable policies (INS/UPD/DEL/ALL): 21
+  - {anon} role:    10  (Phase 1 DROP targets)
+  - {public} role:  11  (Phase 2 targets)
+- RLS enabled: 13 / 16 public tables
+- RLS disabled: bets, edges, player_games
+- Snapshot: data/backup/2026-04-23/policies-writes-pre-migration.txt
+
+
+## Transaction SQL (verbatim, as applied via mcp apply_migration)
+
+DROP POLICY "am_write_bt_res"            ON public.am_backtest_results;
+DROP POLICY "am_write_bt_runs"           ON public.am_backtest_runs;
+DROP POLICY "am_write_logs"              ON public.am_game_logs;
+DROP POLICY "pt_update"                  ON public.am_paper_trades;
+DROP POLICY "pt_write"                   ON public.am_paper_trades;
+DROP POLICY "am_write_tracking"          ON public.am_player_tracking;
+DROP POLICY "am_delete_proj"             ON public.am_projections;
+DROP POLICY "am_write_proj"              ON public.am_projections;
+DROP POLICY "am_write_context"           ON public.am_team_context;
+DROP POLICY "anon insert pipeline_runs"  ON public.pipeline_runs;
+
+Result: {"success": true}
+
+
+## Post-migration state
+
+- Policies (all cmds) in public schema:   26   (delta -10, matches DROP count)
+- Write-capable policies:                 11   (delta -10, all removed were {anon})
+- {public} TO PUBLIC ALL policies:        11   (unchanged)
+- Snapshot: data/backup/2026-04-23/policies-writes-post-migration.txt
+
+
+## Coverage diff (pre -> post)
+
+Removed exactly these 10 rows, all roles={anon}:
+  am_backtest_results | am_write_bt_res               | INSERT
+  am_backtest_runs    | am_write_bt_runs              | INSERT
+  am_game_logs        | am_write_logs                 | INSERT
+  am_paper_trades     | pt_update                     | UPDATE
+  am_paper_trades     | pt_write                      | INSERT
+  am_player_tracking  | am_write_tracking             | INSERT
+  am_projections      | am_delete_proj                | DELETE
+  am_projections      | am_write_proj                 | INSERT
+  am_team_context     | am_write_context              | INSERT
+  pipeline_runs       | anon insert pipeline_runs     | INSERT
+
+No other deltas.
+
+
+## Security posture change
+
+Anon write capability after Phase 1:
+  FULLY CLOSED (anon cannot write at all):
+    - am_paper_trades   (no surviving write policy)
+    - pipeline_runs     (no surviving write policy)
+  PARTIALLY CLOSED (anon-specific policy removed, TO PUBLIC ALL still allows):
+    - am_backtest_results
+    - am_backtest_runs
+    - am_game_logs
+    - am_player_tracking
+    - am_projections
+    - am_team_context
+  UNTOUCHED (no anon-specific policy existed):
+    - closing_prices, kv_store, rb_paper_trades, rb_projections, server_runs
+
+High-value attack surface (paper-trade hit-value tampering from browser
+devtools) is closed by Phase 1. Remaining {public} ALL policies close in
+Phase 2.
+
+
+## Smoke tests
+
+T1  policy count check                     PASS  (26 == 36-10)
+T2a anon SELECT am_paper_trades            PASS  (HTTP 200, real row returned)
+T2b anon SELECT rb_paper_trades            PASS  (HTTP 200, real row returned)
+T2c anon SELECT pipeline_runs              PASS  (HTTP 200, real row returned)
+T4a anon INSERT am_paper_trades            PASS  (HTTP 401, RLS denial,
+                                                   "new row violates row-level
+                                                    security policy for table
+                                                    am_paper_trades", no row)
+T4b anon INSERT pipeline_runs              PASS  (HTTP 401, RLS denial,
+                                                   same message, no row)
+T3  service_role INSERT+DELETE tagged      PASS  (INSERT id a4ed75f7-e53f-4bb1-
+    pipeline='migration_smoke_test'               9ca1-faeb3c1da07d; DELETE
+    on pipeline_runs                               returned same id; remaining
+                                                   smoke_test rows = 0)
+
+
+## Prerequisites executed before Phase 1
+
+1. GitHub workflow states verified via `gh api /repos/.../actions/workflows`:
+   - daily-refresh.yml   : active   (service_role — unaffected)
+   - main.yml            : DISABLED via `gh workflow disable main.yml`
+                           Reason: anon-writes + redundant with daily-refresh
+   - paper-trade.yml     : DISABLED via `gh workflow disable paper-trade.yml`
+                           Reason: anon-writes + duplicate of main.yml
+   - retrain.yml         : active   (filesystem+git only, no Supabase writes)
+
+2. No queued or in-progress runs on disabled workflows at time of migration.
+
+
+## Anomalies
+
+None.
+
+
+## Pending follow-ups (post-Phase-1, separate sessions)
+
+- Phase 2: DROP 11 TO-PUBLIC-ALL policies.
+- Phase 3: CREATE missing anon SELECT policy on rb_paper_trades (no
+           anon-read policy exists today; readers may have been using the
+           TO PUBLIC ALL that Phase 2 will remove).
+- Phase 4: ALTER TABLE ENABLE ROW LEVEL SECURITY on bets, edges, player_games
+           after confirming no writers require them disabled.
+- Decide keep/kill on `edgefinder-server` Cloudflare Worker (external writer
+           to server_runs, closing_prices, kv_store; modified 2026-04-22).
+- Rotate the Supabase anon key once confident in the new policy surface.
+- Consolidate server_runs vs pipeline_runs duplication.
+- Investigate 2026-04-19 retrain.yml failure (pre-dates this work).
+- Delete main.yml and paper-trade.yml files after cooling-off period.
