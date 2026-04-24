@@ -9,7 +9,7 @@ Usage:
   python scripts/rebound_paper_trade.py --resolve    # Resolve yesterday's predictions
   python scripts/rebound_paper_trade.py --report     # Print running performance
 """
-import sys, os, argparse, json, re, time
+import sys, os, argparse, json, re, time, math
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
@@ -26,14 +26,24 @@ from lib.backtest_utils import (
 )
 from lib.db import save_run_log
 from lib.rebound_config import BINARY_FEATURE_COLS
+from lib.game_logs_cache import (
+    save_player_logs, load_player_logs, cache_age,
+    cached_player_count, MAX_CACHE_AGE,
+)
 from scripts.rebound_feature_engineering import DK_TO_NBA_NAME_ALIAS
 
 ROOT = get_project_root()
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://jnirimzrhunjdtyvkhtt.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+if not SUPABASE_SERVICE_ROLE_KEY:
+    raise RuntimeError(
+        "SUPABASE_SERVICE_ROLE_KEY is not set. Required for rb_paper_trades writes. "
+        "Set it in .env (local) or GitHub Actions secrets (CI). "
+        "Get the key from Supabase dashboard → Settings → API → service_role."
+    )
 SB_HEADERS = {
-    "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+    "apikey": SUPABASE_SERVICE_ROLE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
     "Content-Type": "application/json", "Prefer": "return=minimal",
 }
 
@@ -127,6 +137,32 @@ def build_opp_team_lookup():
     return lookup
 
 
+# ── NBA API Reachability Probe ──
+def _nba_api_reachable(timeout: int = 10) -> bool:
+    """Fast probe of stats.nba.com before starting a full refresh (S4 fix).
+
+    If this fails, the downstream `playergamelogs` calls will hang for minutes
+    per player — aborting early with a clean error beats spinning for 20 min.
+    Returns True if the server answered 200 within `timeout` seconds.
+    """
+    try:
+        r = requests.get(
+            "https://stats.nba.com/stats/commonallplayers",
+            params={"IsOnlyCurrentSeason": "1", "LeagueID": "00",
+                    "Season": _current_season()},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+                "Referer": "https://www.nba.com/",
+                "Origin": "https://www.nba.com",
+            },
+            timeout=timeout,
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
 # ── Load Model ──
 
 def load_model():
@@ -194,6 +230,7 @@ def fetch_todays_rebound_lines() -> pd.DataFrame:
                             "player": desc, "line": line,
                             "home_team": home, "away_team": away,
                             "event_id": eid,
+                            "game_time": event.get("commence_time"),
                         }
                     if side == "Over":
                         player_lines[key]["over_price"] = price
@@ -213,8 +250,12 @@ def fetch_todays_rebound_lines() -> pd.DataFrame:
 
 # ── Build Features for Today ──
 
-def build_today_features(lines_df: pd.DataFrame) -> pd.DataFrame:
-    """Build 25-feature vector for each player using nba_api game logs."""
+def build_today_features(lines_df: pd.DataFrame, api_up: bool = True) -> pd.DataFrame:
+    """Build 25-feature vector for each player using nba_api game logs.
+
+    api_up: when False, skip live fetches and read from the local game-logs
+    cache instead (S5 outage path).
+    """
     from nba_api.stats.endpoints import playergamelogs
     from nba_api.stats.static import players
 
@@ -246,11 +287,19 @@ def build_today_features(lines_df: pd.DataFrame) -> pd.DataFrame:
                 continue
             pid = matches[0]["id"]
 
-            time.sleep(0.6)
-            logs = playergamelogs.PlayerGameLogs(
-                player_id_nullable=pid, season_nullable=season,
-                timeout=10,
-            ).get_data_frames()[0]
+            if api_up:
+                time.sleep(0.6)
+                logs = playergamelogs.PlayerGameLogs(
+                    player_id_nullable=pid, season_nullable=season,
+                    timeout=10,
+                ).get_data_frames()[0]
+                if not logs.empty:
+                    save_player_logs(pid, season, logs)
+            else:
+                cached = load_player_logs(pid, season)
+                if cached is None or cached.empty:
+                    continue
+                logs = cached
 
             if logs.empty or len(logs) < 5:
                 continue
@@ -281,6 +330,11 @@ def build_today_features(lines_df: pd.DataFrame) -> pd.DataFrame:
             features["under_price"] = row.get("under_price")
             features["home_team"] = row.get("home_team", "")
             features["away_team"] = row.get("away_team", "")
+            features["game_time"] = row.get("game_time")
+            # Confidence for rebounds uses REB logs + projected count
+            projected_reb = float(features.get("reb_per_min_season", 0.0)) * float(features.get("proj_minutes", 0.0))
+            features["projected_reb"] = round(projected_reb, 2)
+            features["confidence"] = _compute_rebound_confidence(logs, projected_reb, row["line"])
             results.append(features)
 
         except Exception as e:
@@ -404,7 +458,45 @@ def _compute_rebound_features(
         # by save_rebound_projections so away players get the right team/opp).
         "_team_abbr": team_abbr,
         "_opp_abbr": opp_abbr,
+        # Enrichment for the unified rb_paper_trades row (S3-b fix)
+        "team": team_abbr,
     }
+
+
+def _compute_rebound_confidence(logs: pd.DataFrame, projected: float, line: float) -> str:
+    """Confidence grade ported from lib/model.py:compute_confidence_grade, REB variant.
+
+    Scores CV of REB, games played, recent-minutes stability, and line distance.
+    Returns 'A' / 'B' / 'C' / 'D'.
+
+    Defensive guards (S4 audit):
+      - n < 1 → D
+      - Missing REB / MIN_FLOAT column → D
+      - NaN mean/std fall through to fallback branches (NaN > 0 is False)
+    """
+    n = len(logs)
+    if n < 1:
+        return "D"
+    if "REB" not in logs.columns or "MIN_FLOAT" not in logs.columns:
+        return "D"
+    m = float(logs["REB"].mean())
+    s = float(logs["REB"].std(ddof=1)) if n > 1 else m
+    # NaN mean lands here via the (m > 0) guard → cv = 1.0 fallback.
+    cv = (s / m) if (m > 0) else 1.0
+    score = 0.0
+    score += 35 if cv <= 0.25 else 28 if cv <= 0.40 else 18 if cv <= 0.55 else 10 if cv <= 0.70 else 5
+    score += 25 if n >= 50 else 20 if n >= 30 else 12 if n >= 15 else 8 if n >= 10 else 3
+    last10 = logs.tail(min(10, n))
+    mm = float(last10["MIN_FLOAT"].mean()) if len(last10) > 0 else 0.0
+    ms = float(last10["MIN_FLOAT"].std(ddof=1)) if len(last10) > 1 else 0.0
+    mcv = (ms / mm) if mm > 0 else 1.0
+    score += 20 if mcv <= 0.08 else 15 if mcv <= 0.15 else 10 if mcv <= 0.25 else 4
+    dist = abs(projected - line)
+    score += 15 if dist <= 0.5 else 12 if dist <= 1.0 else 7 if dist <= 2.0 else 3
+    if score >= 75: return "A"
+    if score >= 55: return "B"
+    if score >= 35: return "C"
+    return "D"
 
 
 # ── Supabase I/O ──
@@ -430,41 +522,97 @@ def save_predictions(predictions: list) -> None:
 
 
 def resolve_predictions() -> None:
-    """Match yesterday's predictions with actual rebound results."""
-    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    """Resolve ALL unresolved predictions with prediction_date <= yesterday.
+
+    Previously this only checked `eq.yesterday`, so any bet missed by the cron
+    (DNP, NBA API hiccup, workflow gap) stayed stuck forever. Now it sweeps
+    every unresolved row on or before yesterday.
+
+    DNP handling: if the player has game logs but none for the bet's
+    prediction_date, mark the row resolved with `void_reason='dnp'`, pnl=0,
+    under_hit=NULL (stake returned).
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
 
     r = requests.get(
         f"{SUPABASE_URL}/rest/v1/rb_paper_trades",
-        params={"prediction_date": f"eq.{yesterday}", "resolved": "eq.false", "select": "*"},
+        params={"prediction_date": f"lte.{cutoff}", "resolved": "eq.false",
+                "select": "*", "order": "prediction_date.asc"},
         headers=SB_HEADERS, timeout=15)
     if not r.ok or not r.json():
-        logger.info("No unresolved rebound predictions for %s", yesterday)
-        save_run_log("rebounds", "resolve", yesterday, predictions_resolved=0)
+        logger.info("No unresolved rebound predictions with prediction_date <= %s", cutoff)
+        save_run_log("rebounds", "resolve", cutoff, predictions_resolved=0)
         return
 
     preds = r.json()
-    logger.info("Resolving %d rebound predictions for %s", len(preds), yesterday)
+    logger.info("Resolving %d rebound predictions (prediction_date <= %s)", len(preds), cutoff)
 
     resolved_count = 0
+    voided_count = 0
+
+    # Cache NBA API game-log fetches per player — same player can have bets on
+    # multiple prediction_dates and we don't want to re-hit the API per bet.
+    logs_cache: dict = {}
+
     from nba_api.stats.endpoints import playergamelogs
     for pred in preds:
         try:
             pid = pred.get("player_id")
             if not pid:
                 continue
+            pred_date = pred["prediction_date"]
 
-            time.sleep(0.6)
-            logs = playergamelogs.PlayerGameLogs(
-                player_id_nullable=pid, season_nullable=_current_season(),
-                timeout=10,
-            ).get_data_frames()[0]
+            if pid not in logs_cache:
+                # Pull Regular Season + PlayIn + Playoffs and concat so bets in
+                # any phase of the season can resolve. Without this, anything
+                # after the regular-season end date looks like a DNP.
+                frames = []
+                for st in ("Regular Season", "PlayIn", "Playoffs"):
+                    try:
+                        time.sleep(0.6)
+                        df = playergamelogs.PlayerGameLogs(
+                            player_id_nullable=pid,
+                            season_nullable=_current_season(),
+                            season_type_nullable=st,
+                            timeout=10,
+                        ).get_data_frames()[0]
+                        if not df.empty:
+                            frames.append(df)
+                    except Exception as e:
+                        logger.warning("PlayerGameLogs %s failed for %s: %s", st, pid, e)
+                logs_cache[pid] = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+            logs = logs_cache[pid]
 
             if logs.empty:
+                # No logs at all for this player this season — probably a
+                # roster/ID issue, not a DNP. Skip for manual review.
                 continue
 
+            logs = logs.copy()
             logs["GAME_DATE"] = pd.to_datetime(logs["GAME_DATE"])
-            game = logs[logs["GAME_DATE"].dt.strftime("%Y-%m-%d") == yesterday]
+            game = logs[logs["GAME_DATE"].dt.strftime("%Y-%m-%d") == pred_date]
             if game.empty:
+                # DNP: player has logs but none on pred_date. Void the bet
+                # (stake returned, pnl=0, hit=null) so it doesn't stay stuck.
+                update = {
+                    "actual_reb": None,
+                    "under_hit": None,
+                    "pnl": 0.0,
+                    "resolved": True,
+                    "resolved_at": datetime.now(timezone.utc).isoformat(),
+                    "void_reason": "dnp",
+                }
+                pr = requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/rb_paper_trades",
+                    params={"id": f"eq.{pred['id']}"},
+                    headers={**SB_HEADERS, "Prefer": "return=minimal"},
+                    json=update, timeout=15)
+                if not pr.ok:
+                    logger.error("Void PATCH failed for %s (%s): %s %s",
+                                 pred.get("player"), pred_date, pr.status_code, pr.text[:200])
+                else:
+                    resolved_count += 1
+                    voided_count += 1
                 continue
 
             actual_reb = int(game.iloc[0]["REB"])
@@ -494,8 +642,10 @@ def resolve_predictions() -> None:
         except Exception as e:
             logger.warning("Failed to resolve %s: %s", pred.get("player"), str(e)[:100])
 
-    logger.info("Rebound resolution complete for %s (%d/%d)", yesterday, resolved_count, len(preds))
-    save_run_log("rebounds", "resolve", yesterday, predictions_resolved=resolved_count)
+    logger.info("Rebound resolution complete (<= %s): %d resolved (%d voided) of %d",
+                cutoff, resolved_count, voided_count, len(preds))
+    save_run_log("rebounds", "resolve", cutoff,
+                 predictions_resolved=resolved_count)
 
 
 def print_report() -> None:
@@ -552,6 +702,32 @@ def main():
     logger.info("Rebound paper trading — generating predictions for today")
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    # Fast pre-check: if stats.nba.com is unreachable, fall back to cached game
+    # logs rather than abort entirely (S4 fix, S5 fallback). Refresh stays
+    # viable — predictions just miss last night's box scores. Resolve still
+    # requires live API.
+    api_up = _nba_api_reachable()
+    if not api_up:
+        age = cache_age()
+        if age is None:
+            logger.error("NBA API unreachable and no game-logs cache exists — aborting")
+            save_run_log("rebounds", "predict", today, status="error",
+                         error_msg="NBA API unreachable; no cache")
+            sys.exit(2)
+        if age > MAX_CACHE_AGE:
+            hours = age.total_seconds() / 3600
+            logger.error("NBA API unreachable and cache is %.1fh old (max %.0fh) — aborting",
+                         hours, MAX_CACHE_AGE.total_seconds() / 3600)
+            save_run_log("rebounds", "predict", today, status="error",
+                         error_msg=f"NBA API unreachable; cache stale ({hours:.1f}h)")
+            sys.exit(2)
+        hours = age.total_seconds() / 3600
+        logger.warning(
+            "NBA API unreachable — using cached game logs (%.1fh old, %d players). "
+            "Predictions will miss any games played in the last %.1fh.",
+            hours, cached_player_count(), hours,
+        )
+
     model = load_model()
     if model is None:
         save_run_log("rebounds", "predict", today,
@@ -567,7 +743,7 @@ def main():
                      predictions_saved=0, bets_placed=0)
         return
 
-    features = build_today_features(lines)
+    features = build_today_features(lines, api_up=api_up)
     if features.empty:
         logger.info("No features built (all players failed)")
         save_run_log("rebounds", "predict", today,
@@ -585,18 +761,43 @@ def main():
 
     for i, (_, row) in enumerate(features.iterrows()):
         over_prob = float(over_probs[i])
-        dk_implied_over = american_to_implied(row["over_price"]) if row.get("over_price") else 0.5
-        dk_implied_under = american_to_implied(row["under_price"]) if row.get("under_price") else 0.5
-        edge_under = ((1.0 - over_prob) - dk_implied_under) * 100
+        under_prob = 1.0 - over_prob
+        over_price = row.get("over_price")
+        under_price = row.get("under_price")
+        dk_implied_over = american_to_implied(over_price) if over_price else 0.5
+        dk_implied_under = american_to_implied(under_price) if under_price else 0.5
+        edge_over = (over_prob - dk_implied_over) * 100
+        edge_under = (under_prob - dk_implied_under) * 100
         bet_placed = edge_under >= args.edge_threshold
+
+        # ── Unified enrichment: Kelly + best-side + model EV (S3-b fix) ──
+        d_over = american_to_decimal(over_price) if over_price else 1.91
+        d_under = american_to_decimal(under_price) if under_price else 1.91
+        ev_over = (over_prob * d_over - 1) * 100
+        ev_under = (under_prob * d_under - 1) * 100
+
+        if edge_over >= edge_under:
+            best_side, best_edge, best_ev, best_decimal = "OVER", edge_over, ev_over, d_over
+        else:
+            best_side, best_edge, best_ev, best_decimal = "UNDER", edge_under, ev_under, d_under
+
+        # Quarter-Kelly, capped at 5% of bankroll
+        kelly_raw = (best_edge / 100.0) / (best_decimal - 1) if best_decimal > 1 else 0.0
+        kelly_pct = round(max(0.0, min(kelly_raw / 4.0, 0.05)) * 100, 2)
+
+        gt = row.get("game_time")
+        if gt is not None and not (isinstance(gt, float) and math.isnan(gt)):
+            game_time = str(gt)
+        else:
+            game_time = None
 
         predictions.append({
             "prediction_date": today,
             "player": row["player"],
             "player_id": int(row["player_id"]),
             "line": float(row["line"]),
-            "over_price": int(row["over_price"]) if row.get("over_price") else None,
-            "under_price": int(row["under_price"]) if row.get("under_price") else None,
+            "over_price": int(over_price) if over_price else None,
+            "under_price": int(under_price) if under_price else None,
             "model_over_prob": round(over_prob, 4),
             "dk_implied_over": round(dk_implied_over, 4),
             "edge_under": round(edge_under, 2),
@@ -604,6 +805,14 @@ def main():
             "resolved": False,
             "home_team": row.get("home_team", ""),
             "away_team": row.get("away_team", ""),
+            # Unified fields (populated by add_projection_fields_to_paper_trades migration)
+            "team": row.get("team") or None,
+            "game_time": game_time,
+            "best_side": best_side,
+            "kelly_pct": kelly_pct,
+            "confidence": row.get("confidence") or "C",
+            "over_prob": round(over_prob, 4),
+            "model_ev": round(float(best_ev), 2),
         })
 
     bets = [p for p in predictions if p["bet_placed"]]
