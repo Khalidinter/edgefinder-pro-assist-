@@ -791,8 +791,24 @@ def main():
         else:
             game_time = None
 
+        # Stamp prediction_date with the actual game date (in NBA's ET clock),
+        # not "today". The odds API publishes lines a day or two early; a
+        # prediction generated today may be for a game tomorrow. Resolution
+        # matches on prediction_date == GAME_DATE (which stats.nba.com reports
+        # in ET), so stamping `today` falsely VOIDs off-day predictions as
+        # DNP (root cause of the 04-20/04-21 voids).
+        pred_date_for_row = today
+        if game_time:
+            try:
+                from zoneinfo import ZoneInfo
+                pred_date_for_row = datetime.fromisoformat(
+                    game_time.replace("Z", "+00:00")
+                ).astimezone(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
         predictions.append({
-            "prediction_date": today,
+            "prediction_date": pred_date_for_row,
             "player": row["player"],
             "player_id": int(row["player_id"]),
             "line": float(row["line"]),
