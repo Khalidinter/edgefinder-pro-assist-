@@ -11,3 +11,4 @@ models/
 *.pkl
 *.json.model
 supabase/.temp/
+ops/logs/

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.edgefinder.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/khalidhassan/Projects/edgefinder-assist-pro/ops/run_daily.sh</string>
+    </array>
+
+    <!-- Fires at 12:00 PM local time daily.
+         If the Mac is asleep at noon, RunAtLoad ensures it runs the next time
+         launchd reloads (eg login), and StartCalendarInterval will catch up
+         on the next day's noon trigger. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>12</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Run once on load so the user can validate the install with
+         `launchctl load`. Comment out if you don't want a run on every login. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/khalidhassan/Projects/edgefinder-assist-pro</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/khalidhassan/Projects/edgefinder-assist-pro/ops/logs/launchd.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/khalidhassan/Projects/edgefinder-assist-pro/ops/logs/launchd.err.log</string>
+</dict>
+</plist>

@@ -149,8 +149,8 @@
                 <button class="ef-filter-pill" data-filter="bets" onclick="setFilter('bets')">Eligible Bets</button>
             </div>
             <div class="ef-action-group">
-                <button class="ef-btn" id="btnRefresh" onclick="handleRefresh()">⟳ Refresh</button>
-                <button class="ef-btn" id="btnResolve" onclick="handleResolveClick()">✓ Resolve</button>
+                <button class="ef-btn" id="btnRefresh" onclick="handleRefresh()" style="display:none">⟳ Refresh</button>
+                <button class="ef-btn" id="btnResolve" onclick="handleResolveClick()" style="display:none">✓ Resolve</button>
                 <div class="ef-dropdown">
                     <button class="ef-btn" id="btnExport" onclick="toggleExportMenu(event)">⬇ Export CSV ▾</button>
                     <div class="ef-dropdown-menu" id="exportMenu">
@@ -652,6 +652,16 @@ async function exportCSV(scope) {
         setTimeout(() => setBtnState(btn, "idle", "⬇ Export CSV ▾"), 5000);
     }
 }
+
+// Reveal mutation buttons only on localhost (S4: production never has scripts/api.py)
+(function gateMutationButtons() {
+    const h = location.hostname.toLowerCase();
+    const isLocal = h === "localhost" || h === "127.0.0.1" || h === "" || h.endsWith(".local");
+    if (isLocal) {
+        const r = document.getElementById("btnRefresh"); if (r) r.style.display = "";
+        const v = document.getElementById("btnResolve"); if (v) v.style.display = "";
+    }
+})();
 
 loadAll();
 </script>

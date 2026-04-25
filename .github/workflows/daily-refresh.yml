@@ -1,8 +1,10 @@
 name: Daily Model Refresh
 
 on:
-  schedule:
-    - cron: '0 16 * * *'
+  # Scheduled cron disabled 2026-04-25: stats.nba.com Cloudflare WAF rate-limits
+  # GitHub Actions runner IPs, every cron run cancels at 45-min timeout. Daily
+  # refresh is now driven by a local launchd job (see ops/com.edgefinder.daily.plist).
+  # Manual trigger remains available for ad-hoc runs from a non-GHA host.
   workflow_dispatch:
 
 jobs:

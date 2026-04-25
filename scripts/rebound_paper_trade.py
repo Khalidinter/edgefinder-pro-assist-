@@ -141,24 +141,24 @@ def build_opp_team_lookup():
 def _nba_api_reachable(timeout: int = 10) -> bool:
     """Fast probe of stats.nba.com before starting a full refresh (S4 fix).
 
-    If this fails, the downstream `playergamelogs` calls will hang for minutes
-    per player — aborting early with a clean error beats spinning for 20 min.
-    Returns True if the server answered 200 within `timeout` seconds.
+    Uses the ``nba_api`` library directly so the probe's header set matches the
+    real downstream calls. A hand-rolled ``requests.get`` with a subset of
+    headers trips the WAF (silent read timeout) even when the library itself
+    would succeed — false negative, aborting the whole pipeline for nothing.
+
+    If the downstream API really is unreachable, ``playergamelogs`` calls will
+    hang for minutes per player — aborting early with a clean error beats
+    spinning for 20 min. Returns True if the server answered within ``timeout``.
     """
     try:
-        r = requests.get(
-            "https://stats.nba.com/stats/commonallplayers",
-            params={"IsOnlyCurrentSeason": "1", "LeagueID": "00",
-                    "Season": _current_season()},
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-                "Referer": "https://www.nba.com/",
-                "Origin": "https://www.nba.com",
-            },
+        from nba_api.stats.endpoints import commonallplayers
+        df = commonallplayers.CommonAllPlayers(
+            is_only_current_season=1,
+            league_id="00",
+            season=_current_season(),
             timeout=timeout,
-        )
-        return r.status_code == 200
+        ).get_data_frames()[0]
+        return not df.empty
     except Exception:
         return False
 
