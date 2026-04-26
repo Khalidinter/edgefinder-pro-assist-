@@ -1,9 +1,10 @@
 name: Paper Trade
 
 on:
-  schedule:
-    - cron: '0 17 * * *'   # 5pm UTC — predict today's games
-    - cron: '0 10 * * *'   # 10am UTC — resolve yesterday's results
+  # Scheduled cron disabled 2026-04-26: stats.nba.com Cloudflare WAF blocks
+  # GitHub Actions runner IPs. Daily predict+resolve is now driven by the
+  # local launchd job (ops/com.edgefinder.daily.plist).
+  # Manual trigger remains for ad-hoc runs from a non-GHA host.
   workflow_dispatch:
     inputs:
       action:

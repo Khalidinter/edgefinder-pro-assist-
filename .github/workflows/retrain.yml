@@ -1,8 +1,10 @@
 name: Weekly Model Retrain
 
 on:
-  schedule:
-    - cron: '0 12 * * 0'   # Every Sunday at noon UTC
+  # Scheduled cron disabled 2026-04-26: stats.nba.com Cloudflare WAF blocks
+  # GitHub Actions runner IPs (same root cause that killed daily-refresh.yml).
+  # Run weekly retrain locally on demand: `python scripts/retrain.py`.
+  # Manual trigger remains for ad-hoc runs from a non-GHA host.
   workflow_dispatch:
     inputs:
       skip_data:
