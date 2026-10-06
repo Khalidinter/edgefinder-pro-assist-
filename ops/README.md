@@ -45,3 +45,29 @@ for a personal-use tool is to run the pipeline here.
 If the Mac is asleep at noon, the run is skipped that day. The dashboard's
 status pill turns yellow to indicate stale data; resolution catches up the next
 time the Mac is awake at noon.
+
+## Season-start checklist (2026-27 tips off 2026-10-20)
+
+1. **Odds API key** — the pipeline calls `api.the-odds-api.com/v4` (the-odds-api.com).
+   The 20K-credit plan (US$30/mo) covers it: each run costs 1 credit per upcoming
+   event per market, roughly 30-90 credits/day during the season. `theoddsapi.com`
+   is a different product and its key will not work here. Put the new key in `.env`
+   (`ODDS_API_KEY`) and in the GitHub Actions secret of the same name, then verify:
+   ```bash
+   curl -sI "https://api.the-odds-api.com/v4/sports/?apiKey=$ODDS_API_KEY" | grep -i x-requests
+   ```
+2. **Supabase** — project `jnirimzrhunjdtyvkhtt` must be ACTIVE and
+   `SUPABASE_SERVICE_ROLE_KEY` must be in `.env` (both paper-trade scripts refuse to start without it).
+3. **Dependencies** — `pip install -r requirements.txt` (pandas is now pinned to 2.x and pyarrow is explicit).
+4. **Scheduler** — `launchctl list | grep edgefinder`; if missing, follow the one-time install above.
+5. **Smoke test** on a game day:
+   ```bash
+   python3 scripts/paper_trade.py --threshold 0.60
+   python3 scripts/rebound_paper_trade.py
+   ```
+   Expect a `pipeline_runs` row per model and rows on the dashboards. Players need 5
+   regular-season games before they get a prediction, so the first ~2 weeks of the
+   season produce few or no rows — that is expected, not a failure.
+6. **Retrain** once there are a few weeks of games: `python3 scripts/retrain.py`.
+   It now re-fetches the in-progress season and rebuilds the training set from every
+   season on disk (it previously targeted 2025-26 and could shrink the training set).

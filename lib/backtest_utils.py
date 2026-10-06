@@ -36,12 +36,26 @@ SEASONS_MAP = {
     "2023-24": {"start": "2023-10-24", "end": "2024-06-17"},
     "2024-25": {"start": "2024-10-22", "end": "2025-06-22"},
     "2025-26": {"start": "2025-10-21", "end": "2026-06-30"},
+    "2026-27": {"start": "2026-10-20", "end": "2027-06-30"},
 }
+
+
+def current_nba_season(today=None) -> str:
+    """Season string for a date, e.g. "2026-27". Rolls over on October 1.
+
+    Pure stdlib so it can be imported by lightweight scripts (retrain, data
+    pipeline) without pulling in the ML stack. Mirrors the `_current_season`
+    helpers in the paper-trade scripts and lib/model.py.
+    """
+    from datetime import date
+    today = today or date.today()
+    start_year = today.year if today.month >= 10 else today.year - 1
+    return f"{start_year}-{(start_year + 1) % 100:02d}"
 
 # ── Backtest config defaults ──
 TUNING_CUTOFF = "2023-07-01"
 BACKTEST_START = "2023-07-01"
-BACKTEST_END = "2026-04-01"
+BACKTEST_END = "2027-06-30"       # Through the 2026-27 playoffs
 RETRAIN_FREQUENCY_DAYS = 30
 EDGE_THRESHOLD_PCT = 3.0
 FLAT_BET_SIZE = 100.0

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CogniVault Labs | EdgeFinder Pro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#0B0F15;--card:#131921;--border:#1e2a3a;--text:#E2E8F0;--text-secondary:#94A3B8;--dim:#64748B;--green:#00E676;--amber:#FFD740;--red:#FF5252;--cyan:#00E5FF;--purple:#E040FB;--font-ui:'Outfit',-apple-system,sans-serif;--font-mono:'IBM Plex Mono','SF Mono',monospace}
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:var(--bg);color:var(--text);font-family:var(--font-ui);min-height:100vh;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
+        header{padding:22px 32px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+        .brand{font-size:1.5rem;font-weight:800;letter-spacing:-.03em}.brand span{color:var(--cyan)}
+        .sub{font-size:.72rem;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+        .sub a{color:var(--dim);text-decoration:none;border-bottom:1px dotted var(--dim)}
+        .chip{font-family:var(--font-mono);font-size:.68rem;color:var(--cyan);background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.25);padding:5px 10px;border-radius:6px;font-weight:600}
+        main{flex:1;max-width:980px;width:100%;margin:0 auto;padding:40px 24px}
+        h1{font-size:1.1rem;font-weight:600;color:var(--text-secondary);margin-bottom:20px}
+        .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+        .card{display:block;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;text-decoration:none;color:inherit;transition:border-color .15s,transform .15s}
+        .card:hover{transform:translateY(-2px)}
+        .card.assists:hover{border-color:var(--cyan)}.card.rebounds:hover{border-color:var(--purple)}
+        .logo{width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;margin-bottom:16px}
+        .assists .logo{background:linear-gradient(135deg,var(--cyan),#0091EA);color:#08110c}
+        .rebounds .logo{background:linear-gradient(135deg,var(--purple),#AA00FF);color:#fff}
+        .name{font-size:1.25rem;font-weight:800;letter-spacing:-.02em}
+        .desc{font-size:.85rem;color:var(--text-secondary);margin:8px 0 18px;line-height:1.45}
+        .status{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:.7rem;color:var(--dim)}
+        .dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex-shrink:0}
+        .dot.live{background:var(--green);box-shadow:0 0 8px var(--green)}.dot.stale{background:var(--amber)}.dot.error{background:var(--red)}
+        footer{padding:18px 32px;border-top:1px solid var(--border);font-size:.72rem;color:var(--dim);font-family:var(--font-mono)}
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <div class="brand">Edge<span>Finder</span> Pro</div>
+            <div class="sub">NBA player-prop ML &nbsp;·&nbsp; by <a href="https://cognivaultlabs.com" target="_blank" rel="noopener">CogniVaultLabs</a></div>
+        </div>
+        <div class="chip" id="todayChip">--</div>
+    </header>
+    <main>
+        <h1>Pick a model</h1>
+        <div class="grid">
+            <a class="card assists" href="/edgefinder-assists/">
+                <div class="logo">A</div>
+                <div class="name">Assists</div>
+                <div class="desc">XGBoost under-signal on DraftKings assist lines, isotonic-calibrated. Paper-traded daily.</div>
+                <div class="status"><span class="dot" id="astDot"></span><span id="astStatus">Checking pipeline…</span></div>
+            </a>
+            <a class="card rebounds" href="/edgefinder-rebounds/">
+                <div class="logo">R</div>
+                <div class="name">Rebounds</div>
+                <div class="desc">XGBoost under-only edge model on DraftKings rebound lines (8% edge threshold). Paper-traded daily.</div>
+                <div class="status"><span class="dot" id="rbDot"></span><span id="rbStatus">Checking pipeline…</span></div>
+            </a>
+        </div>
+    </main>
+    <footer>Predictions are generated for research / paper trading only. Nothing here is betting advice.</footer>
+<script>
+// Same public (anon, read-only) Supabase credentials the dashboards use.
+const SB_URL = "https://jnirimzrhunjdtyvkhtt.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuaXJpbXpyaHVuamR0eXZraHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2OTE3MjUsImV4cCI6MjA5MDI2NzcyNX0.t5qmr1JdCu_FbHvT0S6uzhCPgplnE2LiaETKiXEyhdI";
+const HEADERS = { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Accept-Profile": "public" };
+
+// Dates in US Eastern to match the pipeline's prediction_date stamping.
+const _etFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+const today = () => _etFmt.format(new Date());
+document.getElementById("todayChip").textContent = today();
+
+async function lastRun(pipeline) {
+    try {
+        const res = await fetch(`${SB_URL}/rest/v1/pipeline_runs?pipeline=eq.${pipeline}&run_type=in.(predict,refresh)&order=run_at.desc&limit=1`, { headers: HEADERS });
+        if (!res.ok) return null;
+        const rows = await res.json();
+        return rows[0] || null;
+    } catch (e) { return null; }
+}
+
+function render(prefix, run) {
+    const dot = document.getElementById(`${prefix}Dot`);
+    const txt = document.getElementById(`${prefix}Status`);
+    if (!run) { txt.textContent = "No pipeline runs recorded"; return; }
+    const when = new Date(run.run_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    if (run.status === "error") {
+        dot.className = "dot error";
+        txt.textContent = `${when} · error: ${run.error_msg || "unknown"}`;
+    } else if (run.prediction_date === today()) {
+        dot.className = "dot live";
+        txt.textContent = `${when} · ${run.predictions_saved ?? 0} predictions · ${run.bets_placed ?? 0} bets`;
+    } else {
+        dot.className = "dot stale";
+        txt.textContent = `Last run ${run.prediction_date} · ${run.predictions_saved ?? 0} predictions`;
+    }
+}
+
+Promise.all([lastRun("assists"), lastRun("rebounds")]).then(([a, r]) => { render("ast", a); render("rb", r); });
+</script>
+</body>
+</html>

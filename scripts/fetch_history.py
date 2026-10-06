@@ -13,7 +13,7 @@ from lib.model import (
 )
 from lib.db import save_game_logs, get_cached_game_logs
 
-SEASONS = ["2023-24", "2024-25", "2025-26"]
+SEASONS = ["2023-24", "2024-25", "2025-26", "2026-27"]
 
 
 def main():

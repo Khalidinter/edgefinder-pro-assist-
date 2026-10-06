@@ -12,7 +12,7 @@ from pathlib import Path
 
 from nba_api.stats.endpoints import leaguegamelog, leaguedashteamstats
 from lib.config import logger
-from lib.backtest_utils import ensure_dirs, get_project_root, SEASONS_MAP
+from lib.backtest_utils import ensure_dirs, get_project_root, SEASONS_MAP, current_nba_season
 
 # ── Retry wrapper ──
 def api_call_with_retry(fn, max_retries=3, base_delay=3.0, max_delay=30.0, **kwargs):
@@ -160,57 +160,98 @@ def fetch_team_stats(season: str) -> pd.DataFrame:
 
 
 # ── Main pipeline ──
-def run_pipeline(seasons: list = None, data_dir: str = None) -> None:
+def _fetch_or_keep(fetch_fn, season: str, path: Path, label: str) -> None:
+    """Re-fetch one per-season parquet. If the API returns nothing (season not
+    started yet) or fails, keep the existing snapshot instead of dropping it."""
+    try:
+        df = fetch_fn(season)
+    except Exception as e:  # noqa: BLE001 — surface, don't abort the whole retrain
+        df = pd.DataFrame()
+        logger.warning("%s fetch for %s failed: %s", label, season, str(e)[:200])
+    if not df.empty:
+        df.to_parquet(path, index=False)
+        logger.info("  Saved %s to %s", label, path)
+    elif path.exists():
+        logger.warning("No %s returned for %s — keeping cached snapshot %s", label, season, path.name)
+    else:
+        logger.warning("No %s returned for %s and no cached snapshot — SKIPPING season", label, season)
+
+
+def run_pipeline(seasons: list = None, data_dir: str = None,
+                 refresh_seasons: list = None) -> None:
+    """Make sure per-season raw parquets exist, then rebuild the combined files.
+
+    seasons:         seasons that must exist locally (default: all of SEASONS_MAP).
+                     Cached per-season files are reused.
+    refresh_seasons: seasons to re-fetch from the NBA API even when cached — pass
+                     the in-progress season so new games are picked up. An empty
+                     or failed refetch keeps the previous snapshot.
+
+    all_game_logs.parquet / all_team_stats.parquet are rebuilt from EVERY
+    per-season file in data_dir, not just `seasons`. Previously a refresh of a
+    single season overwrote the combined files with that one season, which
+    silently shrank the training set used by the weekly retrain.
+    """
     ensure_dirs()
     root = get_project_root()
     data_dir = Path(data_dir) if data_dir else root / "data" / "raw"
+    data_dir.mkdir(parents=True, exist_ok=True)
 
     if seasons is None:
         seasons = list(SEASONS_MAP.keys())
-
-    all_logs = []
-    all_teams = []
+    refresh = set(refresh_seasons or [])
 
     for season in seasons:
         logs_path = data_dir / f"game_logs_{season}.parquet"
         teams_path = data_dir / f"team_stats_{season}.parquet"
 
-        # Fetch game logs
-        if logs_path.exists():
-            logger.info("Loading cached game logs for %s", season)
-            logs = pd.read_parquet(logs_path)
+        if logs_path.exists() and season not in refresh:
+            logger.info("Using cached game logs for %s", season)
         else:
-            logs = fetch_season_game_logs(season)
-            if not logs.empty:
-                logs.to_parquet(logs_path, index=False)
-                logger.info("  Saved to %s", logs_path)
+            _fetch_or_keep(fetch_season_game_logs, season, logs_path, "game logs")
 
-        # Fetch team stats
-        if teams_path.exists():
-            logger.info("Loading cached team stats for %s", season)
-            teams = pd.read_parquet(teams_path)
+        if teams_path.exists() and season not in refresh:
+            logger.info("Using cached team stats for %s", season)
         else:
-            teams = fetch_team_stats(season)
-            if not teams.empty:
-                teams.to_parquet(teams_path, index=False)
-                logger.info("  Saved to %s", teams_path)
+            _fetch_or_keep(fetch_team_stats, season, teams_path, "team stats")
 
-        all_logs.append(logs)
-        all_teams.append(teams)
+    # Combine every per-season file on disk, oldest season first.
+    log_files = sorted(data_dir.glob("game_logs_*.parquet"))
+    team_files = sorted(data_dir.glob("team_stats_*.parquet"))
+    if not log_files:
+        logger.error("No per-season game log parquets found in %s — nothing to combine", data_dir)
+        return
 
-    # Combine all seasons
-    combined_logs = pd.concat(all_logs, ignore_index=True)
-    combined_teams = pd.concat(all_teams, ignore_index=True)
+    combined_logs = pd.concat([pd.read_parquet(p) for p in log_files], ignore_index=True)
+    combined_teams = (pd.concat([pd.read_parquet(p) for p in team_files], ignore_index=True)
+                      if team_files else pd.DataFrame())
+
+    # fetch_opp_rebounds.py adds opp_reb_allowed/opp_oreb/opp_dreb to the combined
+    # team file only. Carry those columns over so a rebuild doesn't drop them.
+    all_teams_path = data_dir / "all_team_stats.parquet"
+    if all_teams_path.exists() and not combined_teams.empty:
+        try:
+            prev = pd.read_parquet(all_teams_path)
+            extra = [c for c in prev.columns if c not in combined_teams.columns]
+            if extra and {"team_abbr", "season"} <= set(prev.columns):
+                carry = prev[["team_abbr", "season", *extra]].drop_duplicates(["team_abbr", "season"])
+                combined_teams = combined_teams.merge(carry, on=["team_abbr", "season"], how="left")
+                logger.info("Preserved extra team-stat columns from previous combined file: %s", extra)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Could not preserve extra team-stat columns: %s", e)
 
     combined_logs.to_parquet(data_dir / "all_game_logs.parquet", index=False)
-    combined_teams.to_parquet(data_dir / "all_team_stats.parquet", index=False)
+    combined_teams.to_parquet(all_teams_path, index=False)
 
-    logger.info("Pipeline complete. Total: %d player-games, %d team-seasons",
-                len(combined_logs), len(combined_teams))
+    logger.info("Pipeline complete. Total: %d player-games, %d team-seasons across %d season file(s)",
+                len(combined_logs), len(combined_teams), len(log_files))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fetch NBA game data")
     parser.add_argument("--seasons", nargs="+", default=list(SEASONS_MAP.keys()))
+    parser.add_argument("--refresh-current", action="store_true",
+                        help="Re-fetch the in-progress season even if a cached parquet exists")
     args = parser.parse_args()
-    run_pipeline(seasons=args.seasons)
+    refresh = [current_nba_season()] if args.refresh_current else None
+    run_pipeline(seasons=args.seasons, refresh_seasons=refresh)

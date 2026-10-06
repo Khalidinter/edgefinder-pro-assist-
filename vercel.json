@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "",
+  "buildCommand": "",
+  "outputDirectory": "sites",
+  "rewrites": [
+    { "source": "/assists", "destination": "/edgefinder-assists/index.html" },
+    { "source": "/rebounds", "destination": "/edgefinder-rebounds/index.html" }
+  ]
+}

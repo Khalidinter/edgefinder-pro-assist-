@@ -3,7 +3,8 @@
 Full model retrain pipeline — run weekly to keep models current.
 
 Steps:
-  1. Refresh current season game logs via data_pipeline.py
+  1. Re-fetch the in-progress season via data_pipeline.py (cached seasons are
+     kept; the combined parquets are rebuilt from every season on disk)
   2. Rebuild assist feature matrix via feature_engineering.py
   3. Rebuild rebound feature matrix via rebound_feature_engineering.py
   4. Retrain assist binary classifier (binary_classifier.py)
@@ -17,7 +18,7 @@ import sys, os, argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lib.config import logger
-from lib.backtest_utils import get_project_root, ensure_dirs, SEASONS_MAP
+from lib.backtest_utils import get_project_root, ensure_dirs, current_nba_season
 
 
 def run_step(name: str, fn, *args, **kwargs):
@@ -39,13 +40,16 @@ def main():
     args = parser.parse_args()
 
     ensure_dirs()
-    current_season = sorted(SEASONS_MAP.keys())[-1]
+    # Derive from today's date, not from SEASONS_MAP's last key — the map is a
+    # static list and pointed the weekly retrain at 2025-26 forever.
+    current_season = current_nba_season()
+    logger.info("Current season: %s", current_season)
 
-    # ── Step 1: Refresh current season game data ──
+    # ── Step 1: Re-fetch current season game data ──
     if not args.skip_data:
         from scripts.data_pipeline import run_pipeline
-        run_step("Data pipeline — current season", run_pipeline,
-                 seasons=[current_season])
+        run_step("Data pipeline — refresh current season", run_pipeline,
+                 seasons=[current_season], refresh_seasons=[current_season])
 
     # ── Step 2: Rebuild assist feature matrix ──
     from scripts.feature_engineering import build_feature_matrix

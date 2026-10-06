@@ -39,10 +39,12 @@ BINARY_FEATURE_COLS: List[str] = REBOUND_FEATURE_COLS + [
 
 REBOUND_TARGET_COL = "actual_reb"
 
-# ── Backtest config (tuned on 2023-24, walk-forward on 2024-25 + 2025-26) ──
+# ── Backtest config (tuned on 2023-24, walk-forward on 2024-25 onward) ──
+# REBOUND_BACKTEST_END bounds the walk-forward window used by retrain.py; it
+# must stay ahead of the current season or new games are silently excluded.
 REBOUND_TUNING_CUTOFF = "2024-07-01"    # Tune hyperparams on 2023-24 only
 REBOUND_BACKTEST_START = "2024-10-22"   # 2024-25 season start
-REBOUND_BACKTEST_END = "2026-06-30"     # 2025-26 season end (incl. playoffs)
+REBOUND_BACKTEST_END = "2027-06-30"     # 2026-27 season end (incl. playoffs)
 REBOUND_RETRAIN_DAYS = 30
 REBOUND_EDGE_THRESHOLD = 3.0           # Minimum edge % to place a bet
 REBOUND_MIN_ISOTONIC_SAMPLES = 200     # Min OOS predictions before isotonic kicks in

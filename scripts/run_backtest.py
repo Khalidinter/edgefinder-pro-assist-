@@ -17,7 +17,7 @@ from lib.backtest_utils import (
 
 def main():
     parser = argparse.ArgumentParser(description="EdgeFinder Assist PRO — Full V1 Backtest")
-    parser.add_argument("--seasons", nargs="+", default=["2022-23", "2023-24", "2024-25", "2025-26"])
+    parser.add_argument("--seasons", nargs="+", default=["2022-23", "2023-24", "2024-25", "2025-26", "2026-27"])
     parser.add_argument("--start-date", default=BACKTEST_START)
     parser.add_argument("--end-date", default=BACKTEST_END)
     parser.add_argument("--retrain-days", type=int, default=RETRAIN_FREQUENCY_DAYS)

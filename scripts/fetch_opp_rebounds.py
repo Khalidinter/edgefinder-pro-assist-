@@ -13,7 +13,7 @@ from nba_api.stats.endpoints import leaguedashteamstats
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PARQUET_PATH = PROJECT_ROOT / "data" / "raw" / "all_team_stats.parquet"
 
-SEASONS = ["2022-23", "2023-24", "2024-25", "2025-26"]
+SEASONS = ["2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]
 
 
 def api_call_with_retry(fn, max_retries=3, base_delay=3.0, **kwargs):

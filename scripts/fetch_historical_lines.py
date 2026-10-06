@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 from lib.config import logger
 
-ODDS_API_KEY = os.getenv("ODDS_API_KEY", "f39e8cadbb6880ac4d4cd0c5bf2f481c")
+ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")  # loaded from .env by lib.config
 SPORT = "basketball_nba"
 MARKETS = "player_assists,player_rebounds,totals,spreads"
 REGIONS = "us"
@@ -29,6 +29,7 @@ SEASON_DATES = {
     "2023-24": ("2023-10-24", "2024-04-14"),
     "2024-25": ("2024-10-22", "2025-04-13"),
     "2025-26": ("2025-10-21", "2026-04-12"),
+    "2026-27": ("2026-10-20", "2027-04-11"),
 }
 
 
@@ -267,10 +268,14 @@ def fetch_season(season: str, output_dir: Path, resume: bool = True) -> pd.DataF
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch historical NBA player prop lines")
-    parser.add_argument("--seasons", nargs="+", default=["2023-24", "2024-25", "2025-26"])
+    parser.add_argument("--seasons", nargs="+", default=["2023-24", "2024-25", "2025-26", "2026-27"])
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--no-resume", action="store_true")
     args = parser.parse_args()
+
+    if not ODDS_API_KEY:
+        logger.error("ODDS_API_KEY is not set. Add it to .env or export it before running.")
+        sys.exit(1)
 
     root = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     output_dir = Path(args.output_dir) if args.output_dir else root / "data" / "lines"

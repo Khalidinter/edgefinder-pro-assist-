@@ -25,6 +25,7 @@ from lib.backtest_utils import (
     american_to_implied, american_to_decimal, payout_at_odds,
 )
 from lib.db import save_run_log
+from lib.odds_utils import filter_events_by_lookahead, log_quota
 from lib.rebound_config import BINARY_FEATURE_COLS
 from lib.game_logs_cache import (
     save_player_logs, load_player_logs, cache_age,
@@ -191,9 +192,13 @@ def fetch_todays_rebound_lines() -> pd.DataFrame:
         return pd.DataFrame()
 
     events = r.json()
-    logger.info("Found %d NBA events", len(events))
+    logger.info("Found %d upcoming NBA events", len(events))
+    # Only pay for events tipping off soon (ODDS_LOOKAHEAD_HOURS, default 48h).
+    events = filter_events_by_lookahead(events)
 
     rows = []
+    last_resp = r  # most recent response carrying quota headers (events call counts)
+    odds_error_logged = False
     for event in events:
         eid = event.get("id")
         if not eid:
@@ -206,8 +211,15 @@ def fetch_todays_rebound_lines() -> pd.DataFrame:
                 "markets": "player_rebounds", "bookmakers": "draftkings",
                 "oddsFormat": "american",
             }, timeout=10)
+        if r2.headers.get("x-requests-remaining") is not None:
+            last_resp = r2
 
         if r2.status_code != 200:
+            # Log the first failure so a bad/expired key or exhausted quota is
+            # visible instead of silently producing "0 lines" with status ok.
+            if not odds_error_logged:
+                logger.warning("Event odds fetch failed (HTTP %s): %s", r2.status_code, r2.text[:200])
+                odds_error_logged = True
             continue
 
         data = r2.json()
@@ -243,6 +255,7 @@ def fetch_todays_rebound_lines() -> pd.DataFrame:
 
         time.sleep(0.3)
 
+    log_quota(last_resp, "rebounds")
     df = pd.DataFrame(rows)
     logger.info("Fetched %d player rebound lines", len(df))
     return df

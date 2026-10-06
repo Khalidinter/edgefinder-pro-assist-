@@ -244,8 +244,20 @@ const API_URL = resolveApiUrl();
 const API_SECRET = localStorage.getItem("ef_api_secret") || "";
 const MODEL = "assists";
 
-function today() { return new Date().toISOString().split("T")[0]; }
-function yesterday() { const d=new Date(); d.setUTCDate(d.getUTCDate()-1); return d.toISOString().split("T")[0]; }
+// Calendar dates are computed in US Eastern time to match the pipeline, which
+// stamps prediction_date from each game's tip-off converted to America/New_York
+// (NBA's official GAME_DATE). Using the UTC date here flipped the dashboard to
+// "tomorrow" at 7-8pm ET and hid that night's slate while games were being played.
+const NBA_TZ = "America/New_York";
+const _etFmt = new Intl.DateTimeFormat("en-CA", { timeZone: NBA_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+function etDate(d) { return _etFmt.format(d); }   // -> "YYYY-MM-DD"
+function today() { return etDate(new Date()); }
+function yesterday() {
+    const [y, m, d] = today().split("-").map(Number);
+    const t = new Date(Date.UTC(y, m - 1, d));
+    t.setUTCDate(t.getUTCDate() - 1);
+    return t.toISOString().slice(0, 10);
+}
 function prettyDate(iso) {
     if (!iso) return "--";
     const d = new Date(iso + "T00:00:00Z");
