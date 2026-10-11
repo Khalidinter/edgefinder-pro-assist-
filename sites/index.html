@@ -60,9 +60,9 @@
     </main>
     <footer>Predictions are generated for research / paper trading only. Nothing here is betting advice.</footer>
 <script>
-// Same public (anon, read-only) Supabase credentials the dashboards use.
+// Same publishable (public, read-only under RLS) Supabase key the dashboards use.
 const SB_URL = "https://jnirimzrhunjdtyvkhtt.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuaXJpbXpyaHVuamR0eXZraHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2OTE3MjUsImV4cCI6MjA5MDI2NzcyNX0.t5qmr1JdCu_FbHvT0S6uzhCPgplnE2LiaETKiXEyhdI";
+const SB_KEY = "sb_publishable_yxIfmyO3pj6611XOxBivIw_1cvoEXak";
 const HEADERS = { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Accept-Profile": "public" };
 
 // Dates in US Eastern to match the pipeline's prediction_date stamping.

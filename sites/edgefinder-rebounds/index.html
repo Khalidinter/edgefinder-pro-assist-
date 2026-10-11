@@ -214,7 +214,9 @@
 
 <script>
 const SB_URL = "https://jnirimzrhunjdtyvkhtt.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuaXJpbXpyaHVuamR0eXZraHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2OTE3MjUsImV4cCI6MjA5MDI2NzcyNX0.t5qmr1JdCu_FbHvT0S6uzhCPgplnE2LiaETKiXEyhdI";
+// Publishable key (public by design, read-only under RLS). Replaces the legacy anon JWT
+// so the legacy keys can be disabled in Supabase -> Settings -> API Keys.
+const SB_KEY = "sb_publishable_yxIfmyO3pj6611XOxBivIw_1cvoEXak";
 const HEADERS = { "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}`, "Accept-Profile": "public" };
 
 // Local API server (scripts/api.py). The ?api= query override is accepted

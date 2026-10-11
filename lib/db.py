@@ -31,7 +31,8 @@ def _service_headers() -> Dict[str, str]:
         raise RuntimeError(
             "SUPABASE_SERVICE_ROLE_KEY is not set. Required for write operations. "
             "Set it in .env (local) or GitHub Actions secrets (CI). "
-            "Get the key from Supabase dashboard → Settings → API → service_role."
+            "Use a secret key (sb_secret_...) from Supabase → Settings → API Keys; the legacy "
+            "service_role JWT also works until legacy keys are disabled."
         )
     return {
         "apikey": SUPABASE_SERVICE_ROLE_KEY,

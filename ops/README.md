@@ -56,8 +56,11 @@ time the Mac is awake at noon.
    ```bash
    curl -sI "https://api.the-odds-api.com/v4/sports/?apiKey=$ODDS_API_KEY" | grep -i x-requests
    ```
-2. **Supabase** — project `jnirimzrhunjdtyvkhtt` must be ACTIVE and
-   `SUPABASE_SERVICE_ROLE_KEY` must be in `.env` (both paper-trade scripts refuse to start without it).
+2. **Supabase** — project `jnirimzrhunjdtyvkhtt` must be ACTIVE. `.env` needs
+   `SUPABASE_KEY` = the publishable key (`sb_publishable_...`) and
+   `SUPABASE_SERVICE_ROLE_KEY` = a secret key (`sb_secret_...`); both come from
+   Supabase -> Settings -> API Keys. The legacy anon / service_role JWTs are being
+   retired because the service_role JWT was found in public front-end bundles.
 3. **Dependencies** — `pip install -r requirements.txt` (pandas is now pinned to 2.x and pyarrow is explicit).
 4. **Scheduler** — `launchctl list | grep edgefinder`; if missing, follow the one-time install above.
 5. **Smoke test** on a game day:
