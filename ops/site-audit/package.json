@@ -1,0 +1,11 @@
+{
+  "name": "edgefinder-site-audit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "audit": "node audit.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}
