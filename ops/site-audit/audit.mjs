@@ -85,7 +85,7 @@ await page.waitForTimeout(4000);
 
 // Discover tabs first, then the controls inside each tab, so filters that only
 // exist on one tab are exercised while that tab is open.
-const tabLocator = page.locator('[role="tab"], nav button, nav a, header button, footer button, [class*="tab" i] button');
+const tabLocator = page.locator('[role="tab"], nav a, button');
 async function visibleControls(scope) {
   const loc = scope.locator('button, [role="tab"], [role="button"], a[href="#"]');
   const n = await loc.count();
