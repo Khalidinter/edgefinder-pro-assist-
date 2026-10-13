@@ -83,35 +83,60 @@ if (PASSCODE) {
 // Let the splash screen finish
 await page.waitForTimeout(4000);
 
-// Discover tabs and buttons
-const candidates = page.locator('[role="tab"], nav button, nav a, header button, footer button, [class*="tab" i] button, button');
-const n = await candidates.count();
-const seenLabels = new Set();
-const targets = [];
-for (let i = 0; i < n && targets.length < 60; i++) {
-  const el = candidates.nth(i);
-  if (!(await el.isVisible().catch(() => false))) continue;
-  const label = ((await el.innerText().catch(() => "")) || (await el.getAttribute("aria-label").catch(() => "")) || "").trim().replace(/\s+/g, " ");
-  if (!label || label.length > 40 || seenLabels.has(label)) continue;
-  seenLabels.add(label);
-  targets.push({ i, label });
+// Discover tabs first, then the controls inside each tab, so filters that only
+// exist on one tab are exercised while that tab is open.
+const tabLocator = page.locator('[role="tab"], nav button, nav a, header button, footer button, [class*="tab" i] button');
+async function visibleControls(scope) {
+  const loc = scope.locator('button, [role="tab"], [role="button"], a[href="#"]');
+  const n = await loc.count();
+  const out = []; const seen = new Set();
+  for (let i = 0; i < n && out.length < 80; i++) {
+    const el = loc.nth(i);
+    if (!(await el.isVisible().catch(() => false))) continue;
+    const label = ((await el.innerText().catch(() => "")) || (await el.getAttribute("aria-label").catch(() => "")) || (await el.getAttribute("title").catch(() => "")) || "").trim().replace(/\s+/g, " ");
+    if (!label || label.length > 40 || seen.has(label)) continue;
+    seen.add(label);
+    out.push({ el, label, enabled: await el.isEnabled().catch(() => true) });
+  }
+  return out;
 }
-log(`\ncontrols found: ${targets.length}`);
-targets.forEach((t) => log(`  - ${t.label}`));
-
-log(`\nclicking through controls (destructive ones skipped${ALLOW_ACTIONS ? ", actions allowed" : ", actions skipped: set ALLOW_ACTIONS=1 to include"})`);
-for (const t of targets) {
-  if (DESTRUCTIVE.test(t.label)) { log(`\n[skip] ${t.label} (destructive)`); continue; }
-  if (!ALLOW_ACTIONS && ACTIONS.test(t.label)) { log(`\n[skip] ${t.label} (action)`); continue; }
-  const el = candidates.nth(t.i);
-  if (!(await el.isVisible().catch(() => false))) { log(`\n[gone] ${t.label}`); continue; }
-  log(`\n[click] ${t.label}`);
-  await el.click({ timeout: 5000 }).catch((e) => log(`  click failed: ${e.message.split("\n")[0]}`));
+async function pressControl(c, depth) {
+  const pad = "  ".repeat(depth);
+  if (DESTRUCTIVE.test(c.label)) { log(`${pad}[skip] ${c.label} (destructive)`); return; }
+  if (!ALLOW_ACTIONS && ACTIONS.test(c.label)) { log(`${pad}[skip] ${c.label} (action, set ALLOW_ACTIONS=1 to include)`); return; }
+  if (!c.enabled) { log(`${pad}[disabled] ${c.label}`); return; }
+  log(`${pad}[click] ${c.label}`);
+  await c.el.click({ timeout: 5000 }).catch((e) => log(`${pad}  click failed: ${e.message.split("\n")[0]}`));
   await page.waitForTimeout(STEP_WAIT);
-  await snap(t.label);
-  drain(t.label);
-  // close any dialog we opened
+  await snap(c.label);
+  drain(c.label);
   await page.keyboard.press("Escape").catch(() => {});
+}
+
+const tabs = [];
+{
+  const n = await tabLocator.count(); const seen = new Set();
+  for (let i = 0; i < n; i++) {
+    const el = tabLocator.nth(i);
+    if (!(await el.isVisible().catch(() => false))) continue;
+    const label = ((await el.innerText().catch(() => "")) || "").trim().replace(/\s+/g, " ");
+    if (!label || label.length > 40 || seen.has(label)) continue;
+    seen.add(label); tabs.push({ el, label, enabled: await el.isEnabled().catch(() => true) });
+  }
+}
+log(`\ntabs found: ${tabs.length}: ${tabs.map((t) => t.label).join(" | ")}`);
+log(`\nclicking through (destructive controls skipped${ALLOW_ACTIONS ? ", actions allowed" : ", actions skipped: set ALLOW_ACTIONS=1 to include"})`);
+const done = new Set();
+for (const t of tabs) {
+  log(`\n== ${t.label}`);
+  await pressControl(t, 0);
+  done.add(t.label);
+  const inner = await visibleControls(page);
+  for (const c of inner) {
+    if (done.has(c.label) || tabs.some((x) => x.label === c.label)) continue;
+    done.add(c.label);
+    await pressControl(c, 1);
+  }
 }
 
 // Summary
