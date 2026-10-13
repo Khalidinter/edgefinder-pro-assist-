@@ -128,12 +128,15 @@ log(`\ntabs found: ${tabs.length}: ${tabs.map((t) => t.label).join(" | ")}`);
 log(`\nclicking through (destructive controls skipped${ALLOW_ACTIONS ? ", actions allowed" : ", actions skipped: set ALLOW_ACTIONS=1 to include"})`);
 const done = new Set();
 for (const t of tabs) {
+  if (done.has(t.label)) continue;
+  if (!(await t.el.isVisible().catch(() => false))) { log(`\n== ${t.label}: hidden on the current tab, skipped`); continue; }
   log(`\n== ${t.label}`);
   await pressControl(t, 0);
   done.add(t.label);
+  // Everything visible now that has not been pressed yet: filters, toggles, sub-tabs.
   const inner = await visibleControls(page);
   for (const c of inner) {
-    if (done.has(c.label) || tabs.some((x) => x.label === c.label)) continue;
+    if (done.has(c.label)) continue;
     done.add(c.label);
     await pressControl(c, 1);
   }
