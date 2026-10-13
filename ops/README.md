@@ -77,10 +77,20 @@ both private). These dashboard steps remain, in this order:
    `main` (new token, free schedule poll). If a later change is needed, link the project to
    the GitHub repo in Vercel -> Project -> Settings -> Git, then every push deploys.
    The site stays behind Vercel login (Deployment Protection) until you turn it off.
-6. **Retire the legacy JWTs** — once the worker deploy is green and this repo's `.env`
+6. **Dashboards** — the Vercel projects `edgefinder-assists` and `edgefinder-rebounds` now
+   deploy from this repo (`sites/edgefinder-assists`, `sites/edgefinder-rebounds` as the
+   project root directories) and were redeployed with the publishable key on 2026-10-13.
+   To redeploy later: push, then Vercel -> project -> Deployments -> Redeploy, or point the
+   project at `main` once this branch is merged.
+7. **MLB app** — `edgefinder.cognivaultlabs.com` (Vercel project `edgefinder-pro`) was deployed
+   on 2026-05-21 from an uncommitted working copy of the `edgefinder-pro` repo and still
+   embeds the legacy JWT. Before step 8, restore it with `ops/restore_vercel_deployment.py`
+   (deployment `dpl_Ahcq9PTSE4S2Kn5vGMc1GhQYswuR`), swap the key for the publishable one,
+   and redeploy. Skipping this means that site stops loading data at step 8.
+8. **Retire the legacy JWTs** — once the worker deploy is green and this repo's `.env`
    uses `sb_publishable_` / `sb_secret_` keys: Supabase -> Settings -> API Keys ->
    Legacy tab -> Disable. The leaked service_role JWT stops working at that moment.
-7. **Rotate the Odds API key** if the old one was ever pasted into a public page; the new
+9. **Rotate the Odds API key** if the old one was ever pasted into a public page; the new
    one goes to the GitHub secret, this repo's `.env`, and the NBA app's settings drawer
    (it is stored in the browser only).
 
