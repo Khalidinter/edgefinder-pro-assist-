@@ -46,6 +46,44 @@ If the Mac is asleep at noon, the run is skipped that day. The dashboard's
 status pill turns yellow to indicate stale data; resolution catches up the next
 time the Mac is awake at noon.
 
+## Worker + NBA app: finishing the key rotation
+
+Code for both is pushed (`Khalidinter/edgefinder-server`, `Khalidinter/edgefinder-nba-pro`,
+both private). These dashboard steps remain, in this order:
+
+1. **Supabase secret key for the worker** — Supabase -> project `jnirimzrhunjdtyvkhtt` ->
+   Settings -> API Keys -> Secret keys -> create one named `edgefinder-server` and copy it
+   (it is shown once).
+2. **Cloudflare API token** — Cloudflare dashboard -> My Profile -> API Tokens -> Create
+   Token -> template "Edit Cloudflare Workers" -> copy it. The Account ID is on the
+   Workers & Pages overview page (right-hand column).
+3. **GitHub Actions secrets** — github.com/Khalidinter/edgefinder-server -> Settings ->
+   Secrets and variables -> Actions -> New repository secret, five times:
+   - `CLOUDFLARE_API_TOKEN` (step 2)
+   - `CLOUDFLARE_ACCOUNT_ID` (step 2)
+   - `SUPABASE_SECRET_KEY` (step 1)
+   - `WORKER_AUTH_TOKEN` — the `workerToken` value in
+     `edgefinder-nba-pro/src/utils/constants.js` (64 hex characters)
+   - `ODDS_API_KEY` — the the-odds-api.com key
+4. **Deploy the worker** — repo -> Actions -> "Deploy worker" -> Run workflow (the run that
+   fired on the first push failed only because the secrets did not exist yet). A green run
+   means the new code and the three secrets are live. Check with the new token:
+   ```bash
+   curl -s -H "Authorization: Bearer $WORKER_AUTH_TOKEN" https://edgefinder-server.edgefinder.workers.dev/status
+   ```
+   The reply should contain `"scanProfile":"budget"` and, after the first game-day run,
+   `oddsUsage` with `used`, `calls` and `remaining`.
+5. **NBA app** — the Vercel project `edgefinder-nba-pro` was redeployed from the repo's
+   `main` (new token, free schedule poll). If a later change is needed, link the project to
+   the GitHub repo in Vercel -> Project -> Settings -> Git, then every push deploys.
+   The site stays behind Vercel login (Deployment Protection) until you turn it off.
+6. **Retire the legacy JWTs** — once the worker deploy is green and this repo's `.env`
+   uses `sb_publishable_` / `sb_secret_` keys: Supabase -> Settings -> API Keys ->
+   Legacy tab -> Disable. The leaked service_role JWT stops working at that moment.
+7. **Rotate the Odds API key** if the old one was ever pasted into a public page; the new
+   one goes to the GitHub secret, this repo's `.env`, and the NBA app's settings drawer
+   (it is stored in the browser only).
+
 ## Season-start checklist (2026-27 tips off 2026-10-20)
 
 1. **Odds API key** — the pipeline calls `api.the-odds-api.com/v4` (the-odds-api.com).

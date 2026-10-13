@@ -73,8 +73,62 @@ market set.
   line-shop button up to ~25 credits per click.
 - This repo's pipeline: 30 – 90 credits per day (see `lib/odds_utils.py`).
 
-## Not done here
+## Code review of the worker (2026-10-13)
 
-The worker source is not in any repository, so the exact lines behind the May 18 jump
-could not be identified. Push `~/edgefinder-server` to a private repo (exclude `.env`,
-`.wrangler/`, `node_modules/`) and the call-by-call review can be finished.
+The worker source was recovered from Cloudflare and now lives in the private repo
+`Khalidinter/edgefinder-server`. What the deployed code was doing per scan:
+
+- Games list: `GET /odds?regions=us,us2,uk,eu&markets=h2h,spreads,totals`, 12 credits,
+  refreshed every 30 minutes. The bookmaker prices in that response were never read.
+- Props: `GET /events/{id}/odds?regions=us,us2,uk,eu&markets=player_points,
+  player_rebounds,player_assists,player_threes`, 16 credits per event, for every event the
+  API lists (several days ahead), throttled by a `propsFetchedAt` map that lived only in
+  the isolate's memory. `saveGameCache` never wrote it back, so every new isolate (each
+  deploy, each idle restart) re-priced every listed event on its first run.
+- The quota header was recorded only when the games list came from the API, so
+  `server_runs.data.apiRemaining` was blank on most runs.
+
+That code bills ~16 credits per listed event per cold start plus ~12 per 30 minutes, which
+is far below the 150-190 credits per event per scan measured in May-June. The remaining
+count is per key, so those deltas also include the MLB worker and app that shared the key
+at the time, the browser line shop and the pipeline. The May 18 jump therefore most likely
+came from the MLB side, not from an NBA worker change. Either way the NBA worker alone could
+not have been checked against a budget, because nothing in it capped spend.
+
+### What changed (edgefinder-server commit "Cut Odds API spend to fit the 20K plan")
+
+1. Games list from the free `/events` endpoint (0 credits).
+2. Props with `bookmakers=fanduel,bet365,draftkings,betmgm,williamhill_us,betrivers,fanatics,
+   espnbet,pinnacle` (9 books = 1 region): 4 credits per event fetch instead of 16. Caesars is
+   keyed `williamhill_us` on The Odds API, so it was added to the legal-book set; the old
+   `caesars` key never matched anything.
+3. `propsFetchedAt` is persisted in `kv_store` (`game-cache`) and merged on load, so the
+   throttle survives restarts and concurrent isolates.
+4. Scan profiles, selected with the `SCAN_PROFILE` var in `wrangler.jsonc`:
+
+   | Profile | Lookahead | Cadence by minutes to tip | Daily cap | Stop when key below |
+   |---|---|---|---|---|
+   | `budget` (default) | 6 h | >240: 60 min, 60-240: 30 min, <60: 15 min | 500 | 1,500 |
+   | `standard` | 24 h | >480: 60, 120-480: 30, 30-120: 10, <30: every run | 20,000 | 5,000 |
+
+   Overrides without a redeploy: `ODDS_LOOKAHEAD_MIN`, `ODDS_DAILY_BUDGET`,
+   `ODDS_MIN_REMAINING`, `ODDS_BOOKMAKERS` (dashboard vars are kept on deploy).
+5. Every Odds API response's `x-requests-last` / `x-requests-remaining` is added to
+   `kv_store.odds-usage` (`{date, used, calls, remaining}`), returned by `/status` as
+   `oddsUsage`, written to `server_runs.data` (`oddsCalls`, `oddsUsedToday`,
+   `oddsBudgetStop`) and printed once per run to Workers Logs as `[EF] scan ...`.
+   Imminent games are priced first, so a cap skips the late slate, not the next tip-off.
+6. Deploys run from GitHub Actions (`.github/workflows/deploy.yml`) with
+   `cloudflare/wrangler-action`, which also sets the rotated `SUPABASE_KEY`, `AUTH_TOKEN`
+   and `ODDS_API_KEY` secrets from repository secrets.
+
+### Expected spend on the 20K plan
+
+With the `budget` profile a game first seen 6 h before tip is priced about 12 times
+(2 + 6 + 4), i.e. ~48 credits per game. An average slate of 7-8 games is ~350-400
+credits per day, about 11K per month; a 12-game slate hits the 500 cap. Together with the
+pipeline (1-3K per month) that stays under 20K. The `standard` profile is the old cadence
+and needs the 100K plan.
+
+The NBA app's schedule poll now also uses `/events` (it cost 1 credit per minute per open
+tab) and a line-shop click is at most 1 credit per event instead of 2.
