@@ -1,5 +1,11 @@
 # EdgeFinder daily ops
 
+> **Status 2026-10-13:** the assists and rebounds models, their dashboards and this
+> repo's daily pipeline are retired. The only site kept active is
+> edgefinder.cognivaultlabs.com (Vercel project `edgefinder-pro`, backed by the
+> `edgefinder-server` Cloudflare worker). The launchd job below does not need to be
+> installed; the sections are kept for reference.
+
 Local launchd cron that runs the assists + rebounds predict & resolve pipelines
 once a day at noon local time. Replaces the GitHub Actions `daily-refresh.yml`
 cron (which was killed 2026-04-25 by stats.nba.com WAF rate-limiting GHA IPs).
