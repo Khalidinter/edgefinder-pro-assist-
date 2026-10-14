@@ -32,6 +32,21 @@ const browser = await chromium.launch({ headless: !HEADED });
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
 const page = await context.newPage();
 
+// Read-only by default: this headless profile starts with empty storage, so the app
+// would otherwise push default settings to the shared Supabase store and overwrite
+// the real ones. Writes to Supabase are answered locally and never sent unless
+// ALLOW_WRITES=1. Worker calls are left alone (ALLOW_ACTIONS controls those buttons).
+const ALLOW_WRITES = process.env.ALLOW_WRITES === "1";
+let blockedWrites = 0;
+if (!ALLOW_WRITES) {
+  await page.route(/supabase\.co\/rest\//, (route) => {
+    const m = route.request().method();
+    if (m === "GET" || m === "HEAD" || m === "OPTIONS") return route.continue();
+    blockedWrites++;
+    return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" }, body: "" });
+  });
+}
+
 const events = [];
 const apiHits = {};
 const push = (type, text) => events.push({ type, text: redact(text) });
@@ -145,6 +160,7 @@ for (const t of top) {
   }
 }
 
+log(`\nSupabase writes intercepted and not sent: ${blockedWrites}${ALLOW_WRITES ? " (ALLOW_WRITES=1)" : ""}`);
 log(`\nAPI hosts contacted (status: count):`);
 for (const [host, codes] of Object.entries(apiHits)) log(`  ${host}: ${Object.entries(codes).map(([c, k]) => `${c}:${k}`).join(" ")}`);
 const lsKeys = await page.evaluate(() => Object.keys(localStorage)).catch(() => []);
