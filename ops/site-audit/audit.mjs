@@ -18,8 +18,9 @@ const PASSCODE = process.env.PASSCODE || "";
 const HEADED = process.env.HEADED === "1";
 const ALLOW_ACTIONS = process.env.ALLOW_ACTIONS === "1";
 const STEP_WAIT = Number(process.env.STEP_WAIT || 1800);
-const DESTRUCTIVE = /reset|delete|untrack|remove|clear|wipe|logout|sign out|paper/i;
-const ACTIONS = /scan|resolve|run|reconcile|backfill|update sets|push|notify|export/i;
+// Never pressed: anything that deletes or rewrites a record (trash icons, result marks).
+const DESTRUCTIVE = /reset|delete|untrack|remove|clear|wipe|logout|sign out|paper|\u{1F5D1}|won|lost|push|undo|void/iu;
+const ACTIONS = /scan|resolve|run|reconcile|backfill|update sets|notify|export|sync/i;
 
 const redact = (u) => String(u).replace(/apiKey=[^&\s]+/gi, "apiKey=REDACTED");
 const norm = (s) => s.trim().replace(/\s+/g, " ").replace(/\d+/g, "#");
