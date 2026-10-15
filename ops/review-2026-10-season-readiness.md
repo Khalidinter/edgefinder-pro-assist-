@@ -43,14 +43,19 @@ shrink it to roughly nothing:
    | 2026-04 | 705 | 52.6 | +0.002 |
    | 2026-05 | 100 | 48.5 | -0.098 |
 
-3. **Closing-line value is negative.** `closing_prices` holds 27,641 devigged closing
+   (The worker was fixed on 2026-10-15 and last season was re-graded; see
+   ops/README.md "Grading, closing snapshot and regrade".)
+
+3. **No closing-line value.** `closing_prices` holds 27,641 devigged closing
    probabilities from 2026-04-08 (the `edges.closing_sharp_prob` column was never
-   filled). Joining 786 rebounds-under edges from that date: the closing fair
-   under-probability averaged 1.9 points below the bet's break-even, 6.4 points below
-   the worker's flag-time "true prob", and only 26% of flagged unders beat the close.
-   Every segment (line size, price, minutes) had negative CLV. The market moved against
-   these bets after they were flagged, which is what a stale-quote or over-calibrated
-   signal looks like, not a real edge.
+   filled). Joining 786 rebounds-under edges from that date, on a like-for-like basis
+   (devigged anchor at flag time vs devigged anchor at close): the market moved 0.8
+   points against the flagged under on average, and only 40% of flagged unders closed
+   better than they were flagged. More telling, the flag-time devigged anchor already
+   sat 1.0 point *below* the bet's break-even: the raw market said these bets had
+   negative edge, and the "+5% EV" came entirely from the 1.10 calibration constant.
+   Every segment (line size, price, minutes) showed the same picture. That is what an
+   over-calibrated signal looks like, not a real edge.
 4. **The wins that remained were minutes, not rebounding.** Where minutes are recorded
    (2,669 rows, almost all April): under 15 minutes played 95% win (+0.55/unit), 15-24
    minutes 69% (+0.31), 25-31 minutes 55% (+0.04), 32+ minutes 44.5% (-0.17). In April

@@ -101,6 +101,37 @@ both private). These dashboard steps remain, in this order:
    one goes to the GitHub secret, this repo's `.env`, and the NBA app's settings drawer
    (it is stored in the browser only).
 
+## Grading, closing snapshot and regrade (worker, 2026-10-15)
+
+`Khalidinter/edgefinder-server` now grades and prices the way the review asked for:
+
+- **Did not play = void.** A player with ESPN's did-not-play flag, an empty stat line
+  or zero minutes is a push with `dnp=true` on `edges` and `bets`; players are matched
+  inside their own game (team nickname in the "Away @ Home" label), an exact name beats
+  a loose one and an ambiguous name stays pending. The old previous-day box-score merge
+  is gone. Accented names are transliterated before matching.
+- **Closing snapshot.** Every props fetch rewrites the game's rows in `closing_prices`
+  (ET date + `player|stat|line`) with the raw per-book prices (`books`), the weighted
+  devigged consensus (`consensus_over/under`), the average vigged implied price per side
+  (`implied_over/under`), `minutes_to_tip` and the Odds API `event_id`; the scan loop
+  forces one fetch inside 6 minutes of tip, so the surviving row is the true close.
+- **CLV on one basis.** At resolve, `edges.clv` = vigged closing price of the same side
+  (same book when it posted one, else the average across books) minus the bet's vigged
+  break-even, in points; positive means you beat the close. `closing_sharp_prob` is the
+  devigged consensus at close (compare with `raw_tp`); `closing_implied`,
+  `closing_book_price` and `closing_mtt` say what it was measured against.
+- **Rebounds only.** `PROP_MARKETS = player_rebounds`: one credit per event call.
+- **Dedup from the database.** Fingerprints for recent game dates are read from
+  Supabase at the start of every tick, so a fresh isolate cannot re-insert an edge.
+
+To re-grade a date range (after a grading change, or if ESPN was down):
+GitHub -> `edgefinder-server` -> Actions -> "Regrade edges and bets" -> Run workflow
+with `from`, `to` (ET game dates) and `tables` (`edges,bets`). It loops over the
+worker's `/regrade` endpoint one date at a time and prints per-date counts
+(`changed`, `dnp`, `pending`, `byChange`). `pending` rows are games ESPN did not
+report as finished or names it could not match; rerun later or fix the name.
+Tests: `npm test` in the worker repo.
+
 ## Season-start checklist (2026-27 tips off 2026-10-20)
 
 1. **Odds API key** — the pipeline calls `api.the-odds-api.com/v4` (the-odds-api.com).
