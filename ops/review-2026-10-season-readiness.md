@@ -35,16 +35,21 @@ shrink it to roughly nothing:
    Andrew Wiggins 34, Myles Turner 33, Dean Wade 31. Those players did not play; a
    sportsbook voids the bet. The worker parses an empty box-score line as 0 rebounds
    (`worker.js` ~2318-2331) and grades it (~2556-2567); only a player missing from the
-   box score becomes a push. Excluding zero-rebound games, one row per player-game:
+   box score becomes a push. The worker was fixed on 2026-10-15 and last season was
+   re-graded (DNP = void, players matched inside their own game, minutes filled; see
+   ops/README.md "Grading, closing snapshot and regrade"). After the re-grade, one row
+   per player-game, DNP voids excluded:
 
-   | month | player-games | win % | profit / unit |
-   |---|---|---|---|
-   | 2026-03 | 726 | 52.5 | +0.032 |
-   | 2026-04 | 705 | 52.6 | +0.002 |
-   | 2026-05 | 100 | 48.5 | -0.098 |
+   | month | player-games | DNP voids | win % | profit / unit |
+   |---|---|---|---|---|
+   | 2026-03 | 772 | 46 | 53.6 | +0.057 |
+   | 2026-04 | 733 | 39 | 53.5 | +0.021 |
+   | 2026-05 | 105 | 2 | 48.5 | -0.099 |
 
-   (The worker was fixed on 2026-10-15 and last season was re-graded; see
-   ops/README.md "Grading, closing snapshot and regrade".)
+   Across the three months that is about +3% per unit over roughly 1,560 player-games,
+   a little over one standard error from zero. (Rows left with a 0-rebound win are
+   players who did play, e.g. Paul Reed Jr 11 minutes and 0 rebounds on 2026-03-25;
+   4,167 old rows with no game date could not be re-graded.)
 
 3. **No closing-line value.** `closing_prices` holds 27,641 devigged closing
    probabilities from 2026-04-08 (the `edges.closing_sharp_prob` column was never
@@ -72,10 +77,10 @@ monotonic.
 
 ### 1.2 Your real bets (table `bets`, 209 rows, 2026-03-10 .. 2026-04-25)
 
-rebounds Under: 93 bets, 50-33-10, +38.52 on 330.55 staked (+11.7%), avg price -33.
-Only 3 of the 50 wins were zero-rebound DNPs (+2.50), so the record is genuine, but 93
-bets at that ROI is about one standard error from zero. Every other stat/side was a
-handful of bets and flat to negative.
+rebounds Under: 93 bets, after the 2026-10-15 re-grade 48-39-6 (the 6 pushes are
+did-not-play voids), +52.26 on 330.55 staked (+15.8%), avg price -33. The record is
+genuine, but 93 bets at that ROI is about one standard error from zero. Every other
+stat/side was a handful of bets and flat to negative.
 
 ### 1.3 Python pipelines (tables `rb_paper_trades`, `am_paper_trades`, `pipeline_runs`)
 

@@ -120,7 +120,13 @@ both private). These dashboard steps remain, in this order:
   break-even, in points; positive means you beat the close. `closing_sharp_prob` is the
   devigged consensus at close (compare with `raw_tp`); `closing_implied`,
   `closing_book_price` and `closing_mtt` say what it was measured against.
-- **Rebounds only.** `PROP_MARKETS = player_rebounds`: one credit per event call.
+- **Tracked bets too.** The bets resolver voids DNPs the same way and fills
+  `bets.clv_prob / clv_value / clv_ts` from the closing snapshot; the app no longer
+  freezes its own estimate as a closing line and no longer writes closing fields to
+  `edges`.
+- **Rebounds only.** `PROP_MARKETS = player_rebounds` in the worker, and the app's
+  PROPS button fetches `player_rebounds` for pre-game events only: one credit per
+  event call instead of four.
 - **Dedup from the database.** Fingerprints for recent game dates are read from
   Supabase at the start of every tick, so a fresh isolate cannot re-insert an edge.
 
