@@ -90,12 +90,10 @@ both private). These dashboard steps remain, in this order:
    done on 2026-10-15. Its source is restored in the private repo
    `Khalidinter/edgefinder-pro-live` (commit `59697a1`: publishable key, new worker token,
    `bookmakers=` list, injuries via `inj.edgefinder.workers.dev`, LIVE data kept across
-   reloads). Vercel refused to connect that repo (account-configuration error), so the
-   project still builds its stored May-2026 source and its install command
-   `curl -fsS https://inj.edgefinder.workers.dev/patch.sh|sh` swaps in the repo's changed
-   files during the build. A Redeploy from the Vercel dashboard keeps the fix. To ship a
-   later change, see "Keys, cost and deployment" in that repo's README. When Vercel ->
-   edgefinder-pro -> Settings -> Git finally accepts the repo, clear the install command.
+   reloads). The Vercel project is linked to that repo since 2026-10-15 (the earlier
+   account-configuration refusal is resolved), so every push to its `main` deploys with
+   the default install command. The interim build-time patch route
+   (`inj.edgefinder.workers.dev/patch.sh`) is retired and the install command is cleared.
 8. **Retire the legacy JWTs** — once the worker deploy is green and this repo's `.env`
    uses `sb_publishable_` / `sb_secret_` keys: Supabase -> Settings -> API Keys ->
    Legacy tab -> Disable. The leaked service_role JWT stops working at that moment.
