@@ -124,6 +124,19 @@ both private). These dashboard steps remain, in this order:
   `bets.clv_prob / clv_value / clv_ts` from the closing snapshot; the app no longer
   freezes its own estimate as a closing line and no longer writes closing fields to
   `edges`.
+- **Fair price = market consensus (2026-10-19).** A prop is priced against the
+  weighted mean of every fresh two-sided quote except the book being priced
+  (`consensusFromEntries`): Pinnacle weight 2 when it posts the line, FanDuel 1,
+  Caesars 0.9, bet365 0.8, DraftKings 0.7, BetMGM 0.6, BetRivers 0.5, Fanatics and
+  theScore 0.4, offshore and sweepstakes books 0.2. It needs three books and 1.8 total
+  weight, drops quotes older than 45 minutes, decays younger ones with a 20-minute
+  time constant, and never uses one-way quotes. A book is flagged only when it
+  disagrees with the consensus by 2.5 points and the raw EV is 4% or more; the old
+  1.10/0.76 calibration is gone from the gate (kept as `edges.tp_cal`). Each edge
+  records `anchor_type`, `anchor_n`, `anchor_weight`, `quote_age_s` and Pinnacle's
+  prices; `/status` shows the live rules. Re-estimate the weights from
+  `closing_prices.books` after three or four weeks (see
+  ops/sharp-anchor-research-2026-10.md).
 - **Rebounds only.** `PROP_MARKETS = player_rebounds` in the worker, and the app's
   PROPS button fetches `player_rebounds` for pre-game events only: one credit per
   event call instead of four.

@@ -211,9 +211,10 @@ Line numbers are approximate to the 2026-10-15 main branch.
 3. **Scan only rebounds** (`markets=player_rebounds`) in the worker and in `fetchProps`,
    pre-game only. Cuts prop cost 4x; spend the savings on the closing snapshot and
    alternate lines.
-4. **Retire the 1.10 / 0.76 constants.** Show raw and calibrated EV side by side; re-fit
-   calibration only on re-graded, out-of-sample 2025-26 data, by stat, side and
-   probability bucket.
+4. **Retire the 1.10 / 0.76 constants.** Done in the worker on 2026-10-19 together
+   with the consensus anchor (ops/sharp-anchor-research-2026-10.md): EV is taken on
+   the raw leave-one-out market consensus, `tp_cal` keeps the old number for
+   comparison. The app's PROPS engine still uses the FanDuel x CALIB fair price.
 5. **Fix the push math** (both EV and Kelly, per-line push table) and stop deleting
    outliers from the candidate list (exclude them from the consensus only).
 6. **Worker plumbing:** write dedup/timing state through every tick, move
@@ -239,9 +240,10 @@ CI per season for the 8% under rule before trusting it.
 8. **Alternate lines.** The Odds API lists `player_rebounds_alternate` next to
    `player_rebounds` (per-event endpoint, +1 credit per call). Price your modeled number
    at the best available line instead of only the main line.
-9. **Consensus anchor.** Leave-one-out weighted average of devigged probabilities across
-   all two-sided books (the weight table exists), require the target to beat the best
-   available price, translate Pinnacle spreads/totals across points.
+9. **Consensus anchor.** Done in the worker on 2026-10-19 for props (leave-one-out,
+   freshness-weighted, Pinnacle as a weight-2 input). Still open: translating quotes
+   across different lines with the alternate ladder, and learning the weights from the
+   closing snapshot.
 10. **Decide with CLV, not win rate.** Bet only segments that show positive CLV over at
     least 300 player-games with the fixed grading; keep EdgeHealth's rolling-100 ROI
     gate. Only then pull the Python model probability into the app.
