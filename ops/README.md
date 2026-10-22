@@ -94,6 +94,14 @@ both private). These dashboard steps remain, in this order:
    account-configuration refusal is resolved), so every push to its `main` deploys with
    the default install command. The interim build-time patch route
    (`inj.edgefinder.workers.dev/patch.sh`) is retired and the install command is cleared.
+   One catch (2026-10-22): Vercel blocks a push whose commit author is
+   `khalidinter87@gmail.com` with the "account configuration" error (the deployment
+   shows as BLOCKED and never builds), while commits authored as `Claude
+   <noreply@anthropic.com>` build normally. Vercel resolves the author email to a GitHub
+   login and wants that login connected to the Vercel account: Vercel -> Account
+   Settings -> Authentication -> connect GitHub (`Khalidinter`). Until then, a blocked
+   commit is deployed by hand: Vercel -> project -> Deployments -> the BLOCKED row ->
+   Redeploy, or an API deployment from the same commit (that is how `b434335` went live).
 8. **Retire the legacy JWTs** — once the worker deploy is green and this repo's `.env`
    uses `sb_publishable_` / `sb_secret_` keys: Supabase -> Settings -> API Keys ->
    Legacy tab -> Disable. The leaked service_role JWT stops working at that moment.
