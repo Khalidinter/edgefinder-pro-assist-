@@ -137,6 +137,18 @@ both private). These dashboard steps remain, in this order:
   prices; `/status` shows the live rules. Re-estimate the weights from
   `closing_prices.books` after three or four weeks (see
   ops/sharp-anchor-research-2026-10.md).
+- **Watch tier and alerts (2026-10-22).** A quote that beats the consensus by
+  1.5 points with a raw EV of 2% or more, but misses the full 2.5-point / 4% gate,
+  is stored on `edges` with `watch = true` (`type` stays `+EV PROP`, `es_tier` is
+  `W`). Watch rows are graded and get CLV like full edges but are never pushed, the
+  worker's player flags, auto blacklist, confidence, matchup history and daily
+  summary skip them, and the app's edges reader filters `watch=not.is.true`. After
+  two or three weeks, compare `clv` and `game_outcome` for watch rows against full
+  edges by `anchor_type` to decide whether the full gate is too tight or too loose.
+  Push alerts now follow one rule (`shouldAlert`): a full edge whose consensus
+  included Pinnacle at EV 4% or more, or any full edge at EV 6% or more; the old
+  A+ / HIGH-confidence / rebounds-under-7 rule is gone. `/status` shows `watch` and
+  `alertEv` under `pricing`.
 - **Rebounds only.** `PROP_MARKETS = player_rebounds` in the worker, and the app's
   PROPS button fetches `player_rebounds` for pre-game events only: one credit per
   event call instead of four.
