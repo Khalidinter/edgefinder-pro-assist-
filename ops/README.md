@@ -160,9 +160,21 @@ both private). These dashboard steps remain, in this order:
   included Pinnacle at EV 4% or more, or any full edge at EV 6% or more; the old
   A+ / HIGH-confidence / rebounds-under-7 rule is gone. `/status` shows `watch` and
   `alertEv` under `pricing`.
-- **Rebounds only.** `PROP_MARKETS = player_rebounds` in the worker, and the app's
-  PROPS button fetches `player_rebounds` for pre-game events only: one credit per
-  event call instead of four.
+- **All main player markets, both sides (2026-10-23).** The worker and the app's
+  PROPS button fetch `player_points, player_rebounds, player_assists, player_threes,
+  player_blocks, player_steals` per event (one credit per market, six per fetch) and
+  record every quote that clears the market gates on either side. Last season's
+  hard blocks (lines of 3.5 or less, rebounds-under line bands, the player blacklist)
+  no longer drop a row; such rows carry `es_tier = X` so this season's data can judge
+  them. Alerts stay market-based (`shouldAlert`). Player flags and the automatic
+  blacklist are keyed by player, stat and side.
+  **Credits:** the base schedule is 13 fetches per game (13 x 6 = 78 credits);
+  `gapScaleFor` stretches the fetch gaps so a night stays near `dailyBudget`
+  (400 in the budget profile, override with the worker variable `ODDS_DAILY_BUDGET`):
+  up to 5 games run the full schedule, 10 games about 7 fetches each, the closing
+  fetch is never skipped. Expect roughly 400 credits on a busy night and 12K a month
+  for the worker on the 20K plan; the app's PROPS button adds 6 per game each click.
+  Each run logs `gamesToday` and `gapScale` in `server_runs.data`.
 - **Dedup from the database.** Fingerprints for recent game dates are read from
   Supabase at the start of every tick, so a fresh isolate cannot re-insert an edge.
 
