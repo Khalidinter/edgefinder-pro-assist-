@@ -153,6 +153,9 @@ both private). These dashboard steps remain, in this order:
   summary skip them, and the app's edges reader filters `watch=not.is.true`. After
   two or three weeks, compare `clv` and `game_outcome` for watch rows against full
   edges by `anchor_type` to decide whether the full gate is too tight or too loose.
+  A watch row is only written while no full edge exists for the same book, player,
+  line and date (a quote that decays after the full edge was recorded is a duplicate);
+  a watch row followed by a full edge is a promotion and both rows stay.
   Push alerts now follow one rule (`shouldAlert`): a full edge whose consensus
   included Pinnacle at EV 4% or more, or any full edge at EV 6% or more; the old
   A+ / HIGH-confidence / rebounds-under-7 rule is gone. `/status` shows `watch` and
