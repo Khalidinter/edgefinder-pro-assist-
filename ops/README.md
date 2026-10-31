@@ -185,6 +185,17 @@ both private). These dashboard steps remain, in this order:
   incident ("Delayed, missed, and duplicated Workers Cron Triggers") stopped the cron
   from 17:45 to 00:00 UTC and nothing reported it; on 2026-10-24/25/26 the evening
   trigger (11-23 UTC) did not fire at all while the overnight one did.
+- **Process tab on the site (2026-10-31).** edgefinder.cognivaultlabs.com has a
+  "Process" tab that shows the pipeline: Cloudflare cron state and last tick, runs
+  today against the 240-tick schedule, Odds API credits against the 400 cap, the
+  Supabase fallback, full edges vs watch rows (W-L, units, price CLV, market move,
+  true-close share, tier X), the who-moved split, results by market and side, one row
+  per night with closing coverage, cron completeness per UTC day, the anchor mix and
+  the last 25 alerts with grades. It reads the Postgres function
+  `public.process_summary(p_days, p_season_start, p_daily_budget)` (security definer,
+  callable with the publishable key: `POST /rest/v1/rpc/process_summary`) and the
+  worker's open `/tick` route. New seasons: pass the new `p_season_start` from the app
+  or change the function default (migration `process_summary_rpc`).
 - **Cron fallback (2026-10-31).** Supabase `pg_cron` job `edgefinder-cron-fallback`
   (`*/5 0-6,11-23 * * *`) calls `GET /nudge` on the worker through `pg_net`. The
   worker runs the scan only when two or more scheduled ticks are missing since its
