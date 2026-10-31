@@ -183,7 +183,21 @@ both private). These dashboard steps remain, in this order:
   "Worker silent N min" and logs `cronGapMin` / `missedTicks` in `server_runs.data`.
   The quiet hours 07-10 UTC are not counted. Reason: on 2026-10-23 a Cloudflare
   incident ("Delayed, missed, and duplicated Workers Cron Triggers") stopped the cron
-  from 17:45 to 00:00 UTC and nothing reported it.
+  from 17:45 to 00:00 UTC and nothing reported it; on 2026-10-24/25/26 the evening
+  trigger (11-23 UTC) did not fire at all while the overnight one did.
+- **Cron fallback (2026-10-31).** Supabase `pg_cron` job `edgefinder-cron-fallback`
+  (`*/5 0-6,11-23 * * *`) calls `GET /nudge` on the worker through `pg_net`. The
+  worker runs the scan only when two or more scheduled ticks are missing since its
+  last run (`NUDGE_MIN_MISSED`), claims the tick first so concurrent nudges cannot
+  double-scan, and reports the real gap through the silence alert ("The Supabase
+  fallback is running the scan now"). `/tick` and `/nudge` need no token because
+  they cannot do more than the cron itself would have done; every other route still
+  does. `server_runs.data.trigger` says who ran a tick (`cron`, `nudge`, `manual`).
+  Check the job with `select * from cron.job_run_details order by start_time desc
+  limit 20` and the worker's replies with `select status_code, content from
+  net._http_response order by id desc limit 10`. GitHub Actions was not used for
+  this: a 10-minute schedule would bill about 4,300 Actions minutes a month on a
+  private repo and exhaust the free allowance that the deploy workflow needs.
 - **Dedup from the database.** Fingerprints for recent game dates are read from
   Supabase at the start of every tick, so a fresh isolate cannot re-insert an edge.
 
