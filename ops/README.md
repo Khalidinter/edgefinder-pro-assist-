@@ -204,6 +204,32 @@ both private). These dashboard steps remain, in this order:
   sides of all four markets, and tags plays EDGE (2.5 pts, >4% EV) or WATCH (1.5 pts,
   2%+). Grades come from a stat-neutral `marketScore`; the EDGE / WATCH filter replaces
   CORE / NOISE. Users' saved `minGrade` still applies (default now B).
+- **Flag-time context and quote history (2026-11-02).** Every props snapshot is kept
+  in `prop_quotes` (one row per book and line, 45 days, pruned by the pg_cron job
+  `edgefinder-prop-quotes-retention`). Before writing a new snapshot the worker reads
+  the previous one (`latest_prop_quotes` RPC) and classifies each flagged quote the
+  moment it fires, in `edges.flag_class`: `book_led` (the book made our side cheaper by
+  1+ point while the market held), `market_led` (the market moved toward our side while
+  the book held: a stale line), `both`, `static` (the gap already existed) or `opening`
+  (first snapshot). `book_move_pts`, `market_move_pts` and `prev_quote_age_s` carry the
+  sizes. ESPN's injury report is read once per run and kept in kv `injuries-latest`
+  with the time each status last changed; each edge records `player_status`,
+  `team_out` (Out/Doubtful players in the game) and `injury_change_min` (minutes since
+  the last status change on either team). Alerts carry the same context line. The
+  Process tab has three new sections (who opened the gap, injury report at flag time,
+  news context today) and a context column on the alerts table.
+- **News-context agent (2026-11-02).** A Claude routine ("EdgeFinder news context
+  scan", 1:50 PM and 5:50 PM ET) researches tonight's flagged players (injury
+  designations, minutes, lineup, rest) and the market commentary per game, and commits
+  `notes/<date>/news-<date>-<HHMM>.json` to `edgefinder-server`. Its sessions cannot
+  reach Supabase, so GitHub is the channel: the **Export today's flags** workflow
+  (18:40 / 22:40 UTC in standard time, 17:40 / 21:40 UTC in daylight time) writes
+  `notes/<date>/flags.json` from the `flags_today` RPC ten minutes earlier, and the
+  **Sync news notes** workflow ingests each new note file through
+  `ingest_context_notes` (notes into `context_notes`, `news_flag` = explained /
+  unexplained on today's edges with 4+ points of disagreement). Note commits do not
+  redeploy the worker (`paths-ignore: notes/**`). Pause or change the routine from the
+  claude.ai scheduled-tasks list; the format is in `notes/README.md`.
 - **Cron fallback (2026-10-31).** Supabase `pg_cron` job `edgefinder-cron-fallback`
   (`*/5 0-6,11-23 * * *`) calls `GET /nudge` on the worker through `pg_net`. The
   worker runs the scan only when two or more scheduled ticks are missing since its
