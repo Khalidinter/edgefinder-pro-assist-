@@ -196,6 +196,14 @@ both private). These dashboard steps remain, in this order:
   callable with the publishable key: `POST /rest/v1/rpc/process_summary`) and the
   worker's open `/tick` route. New seasons: pass the new `p_season_start` from the app
   or change the function default (migration `process_summary_rpc`).
+- **App props engine aligned with the worker (2026-11-02).** The site's Action tab
+  used to run last season's logic (FanDuel anchor, calibration constant, a score that
+  rewarded rebounds under and punished overs, hard blocks, assists never shown), so it
+  only ever surfaced rebounds under. `analyzePropEV` in `edgefinder-pro-live` now uses
+  the same leave-one-out consensus, weights and thresholds as the worker, prices both
+  sides of all four markets, and tags plays EDGE (2.5 pts, >4% EV) or WATCH (1.5 pts,
+  2%+). Grades come from a stat-neutral `marketScore`; the EDGE / WATCH filter replaces
+  CORE / NOISE. Users' saved `minGrade` still applies (default now B).
 - **Cron fallback (2026-10-31).** Supabase `pg_cron` job `edgefinder-cron-fallback`
   (`*/5 0-6,11-23 * * *`) calls `GET /nudge` on the worker through `pg_net`. The
   worker runs the scan only when two or more scheduled ticks are missing since its
