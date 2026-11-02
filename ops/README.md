@@ -228,8 +228,14 @@ both private). These dashboard steps remain, in this order:
   **Sync news notes** workflow ingests each new note file through
   `ingest_context_notes` (notes into `context_notes`, `news_flag` = explained /
   unexplained on today's edges with 4+ points of disagreement). Note commits do not
-  redeploy the worker (`paths-ignore: notes/**`). Pause or change the routine from the
-  claude.ai scheduled-tasks list; the format is in `notes/README.md`.
+  redeploy the worker (`paths-ignore: notes/**`). The routine is bound to a persistent
+  Claude session ("EdgeFinder news context agent", Sonnet, repository attached), because
+  a scheduled task that starts a fresh session gets no repository and no connectors;
+  for the same reason the "run now" button on the task starts a repository-less session
+  that can only report failure, so test it by sending the run instructions to the
+  persistent session instead. A research run costs well under a dollar on Sonnet.
+  Pause or change the routine from the claude.ai scheduled-tasks list; the format is in
+  `notes/README.md`. First live run: 2026-11-02 15:27 UTC, 15 notes ingested.
 - **Cron fallback (2026-10-31).** Supabase `pg_cron` job `edgefinder-cron-fallback`
   (`*/5 0-6,11-23 * * *`) calls `GET /nudge` on the worker through `pg_net`. The
   worker runs the scan only when two or more scheduled ticks are missing since its
