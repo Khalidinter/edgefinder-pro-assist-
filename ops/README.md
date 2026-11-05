@@ -260,6 +260,89 @@ worker's `/regrade` endpoint one date at a time and prints per-date counts
 report as finished or names it could not match; rerun later or fix the name.
 Tests: `npm test` in the worker repo.
 
+## Consensus backtest pipeline (2026-11-04)
+
+The project proposal of 2026-11-04 ("NBA Daily Consensus Backtest Pipeline")
+adds a module that gathers the market consensus for each game, tests every
+consensus play against history, publishes a card, and grades every published
+pick against the box score and the closing line. Phase 1 (data foundation) and
+the Phase 0 pilot went live on 2026-11-05; the collector (Phase 2), the
+backtest engine (Phase 3) and the automated card (Phase 4) follow.
+
+- **Database (`edgefinder-server/supabase/migrations/20261104_consensus_pipeline.sql`,
+  applied 2026-11-05).** New tables `games` (one row per game with scores, opening
+  and closing spread, total and no-vig moneyline), `odds_snapshots` (game lines
+  per book, market, side), `injuries`, `consensus_inputs`, `consensus`, `backtests`
+  and `picks_ledger` (one row per selection, date and role: `consensus` = the
+  control group, `tested` = a published pick; price and line at publish, the latest
+  ones, revisions, closing price, result, profit at 1u, CLV in points). `prop_quotes`
+  gained `snap` (`am` / `pm` / `close`) and the `prop_snapshots` view; the 45-day
+  purge keeps tagged rows. RPCs: `slate_today` and `ingest_card` (service key only),
+  `daily_card`, `ledger_summary`, `ledger_rows` (anon, read only). The trigger
+  `picks_ledger_alert` posts every passing pick and every verdict change to ntfy
+  through pg_net; it reads the topic from `kv_store` key `ntfy-topic`, which the
+  worker mirrors from its secret (see the ntfy note below).
+- **Worker boards and game lines (commit d6455af).** Every game of the ET day is
+  priced once at or after 09:30 ET (`snap=am`) and once at or after 15:00 ET
+  (`pm`), whatever its tip; the closing fetch is tagged `close`. One bulk call
+  (`h2h,spreads,totals`, 3 credits for the whole slate) runs at the same moments
+  and 12 minutes before each tip, into `games` and `odds_snapshots`; the closing
+  call stores the median spread and total and the weighted no-vig moneyline on
+  `games`. `ODDS_DAILY_BUDGET` is 540 (wrangler var) and the scan's gap scaling
+  works with the budget minus the boards' reserve. `/slate` (token) returns
+  `slate_today`; `/tick` now reports `ntfyConfigured` and `oddsConfigured`.
+- **ntfy topic missing (found 2026-11-05).** `/tick` reports `ntfyConfigured:
+  false`: the worker has no `NTFY_TOPIC` secret, so every edge alert, ops alert
+  and daily summary has been dropped silently (the run counters still count the
+  attempts). Fix: add the topic as the GitHub repo secret `NTFY_TOPIC` in
+  `edgefinder-server` and re-run the **Deploy worker** workflow (the deploy sets
+  it on the worker when the repo secret exists), or set the secret in the
+  Cloudflare dashboard; then run **Worker check** and look for `ntfyConfigured:
+  true`. The ledger alert trigger starts working at the worker's next tick after
+  that.
+- **Card channel (`edgefinder-server/cards/`).** `cards/<date>/slate.json` is
+  written by **Export today's slate** (`export-slate.yml`, 09:40 ET backup
+  schedule; the agent dispatches it at the start of a run) from `slate_today`:
+  games, tips, the latest prop board per player and stat (modal line, fair
+  price, best prices), game lines, the injury map, yesterday's ungraded picks.
+  `cards/<date>/card-<date>-<HHMM>.json` and `grades-<date>-<HHMM>.json` are
+  ingested on push by **Sync cards** (`sync-cards.yml`) through `ingest_card`.
+  Formats: `cards/README.md`.
+- **Card agent (Phase 0).** Persistent Claude session "EdgeFinder daily card
+  agent" (Sonnet, repository attached, `session_011ABwXWw9VgfvRSoLEwUnja`) and
+  the scheduled task "EdgeFinder daily card" (`trig_01LjyDcmfypwxvaUxUcYpcPU`,
+  9:50 AM ET). The task's prompt only syncs `main` and points at
+  `cards/PROMPT.md`, so the method (the October manual method: consensus from
+  three or more sources, own-history and comparable-set tests, verdicts
+  passes / lean / fails / flip, `template_version` `manual-oct`) is edited by
+  commit, never through the task. Test a run by sending the run instructions to
+  the persistent session (the task's "run now" starts a repository-less
+  session); the agent must not call `send_message` (a permission prompt stalls
+  the run; the prompt says so). First runs 2026-11-04/05 wrote no card: the
+  `slate_today` 404 before the migration, then an empty board (two late tips).
+- **Python pipeline (`edgefinder-server/pipeline/`).** `python -m
+  edgefinder_pipeline.cli grade --date yesterday` grades `picks_ledger` rows from
+  the official box scores and schedule (sportsdataverse-data parquet releases,
+  season named by its end year), writes `result`, `actual`, `profit_units`,
+  `closing_*` and `clv_pts` (same-book closing price from `closing_prices` or the
+  `close` rows of `odds_snapshots`; CLV only at the same line), voids a player
+  with no minutes, and stores final scores in `games`; `metrics` stores the
+  bootstrap ROI summary in `kv_store` `ledger-metrics`. **Grade the picks ledger**
+  (`grade.yml`) runs both at 07:30 ET; **Pipeline tests** runs pytest on changes.
+  A pipeline grade overwrites an agent grade, never the reverse.
+- **Ledger tab on the site (commit 1f0b85f).** Published picks against the
+  consensus control (units, ROI, hit rate with its Wilson interval, CLV share
+  and average), calibration by verdict, by-market and weekly tables, the 300-pick
+  gate with the bootstrap interval, and the rows with a CSV export.
+- **Workflows and ET times.** GitHub cron is UTC, so each ET-timed workflow
+  lists both the EST and EDT minute and a first step exits unless
+  `TZ=America/New_York date` lands in the intended window. `deploy.yml` ignores
+  `notes/**`, `cards/**`, `pipeline/**` and `supabase/**`.
+- **Checks.** `select snap, count(*) from prop_quotes where game_date = current_date::text group by 1`;
+  `select count(*) from odds_snapshots where game_date = current_date::text`;
+  `select * from picks_ledger order by published_at desc limit 20`;
+  the **Worker check** workflow (prints `/tick` and a slate summary).
+
 ## Season-start checklist (2026-27 tips off 2026-10-20)
 
 1. **Odds API key** — the pipeline calls `api.the-odds-api.com/v4` (the-odds-api.com).
