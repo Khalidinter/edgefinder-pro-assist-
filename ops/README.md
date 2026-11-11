@@ -269,6 +269,21 @@ pick against the box score and the closing line. Phase 1 (data foundation) and
 the Phase 0 pilot went live on 2026-11-05; the collector (Phase 2), the
 backtest engine (Phase 3) and the automated card (Phase 4) follow.
 
+- **Freeze (2026-11-10 to the gate on 2027-02-15).** Decided with the user on
+  2026-11-10: nothing new is built until the gate; changes are limited to what
+  stops data collection or corrupts the record. The Freeze section of
+  `edgefinder-server/README.md` holds the weekly review (three numbers: CLV of
+  published picks, units and ROI against the control, graded picks against the
+  300-pick gate) and the gate rule (CLV share under 55% or an ROI interval below
+  zero stops it; CLV 55%+ with an interval that includes zero earns one paper
+  extension to the end of the regular season; CLV 55%+ with an interval above
+  zero means small stakes). The orchestrating session's scheduled tasks
+  "EdgeFinder weekly freeze review" (Mondays 12:31 ET) and "EdgeFinder gate
+  evaluation" (2027-02-15 13:00 ET) report; they change nothing. The
+  news-context agent is off (task `trig_0187nMcaHLiqQNPmtPYkQV5h` disabled,
+  session archived) after a week of empty note files that cost about $19; its
+  export and sync workflows still run and are harmless.
+
 - **Database (`edgefinder-server/supabase/migrations/20261104_consensus_pipeline.sql`,
   applied 2026-11-05).** New tables `games` (one row per game with scores, opening
   and closing spread, total and no-vig moneyline), `odds_snapshots` (game lines
@@ -291,15 +306,17 @@ backtest engine (Phase 3) and the automated card (Phase 4) follow.
   `games`. `ODDS_DAILY_BUDGET` is 540 (wrangler var) and the scan's gap scaling
   works with the budget minus the boards' reserve. `/slate` (token) returns
   `slate_today`; `/tick` now reports `ntfyConfigured` and `oddsConfigured`.
-- **ntfy topic missing (found 2026-11-05).** `/tick` reports `ntfyConfigured:
-  false`: the worker has no `NTFY_TOPIC` secret, so every edge alert, ops alert
-  and daily summary has been dropped silently (the run counters still count the
-  attempts). Fix: add the topic as the GitHub repo secret `NTFY_TOPIC` in
-  `edgefinder-server` and re-run the **Deploy worker** workflow (the deploy sets
-  it on the worker when the repo secret exists), or set the secret in the
-  Cloudflare dashboard; then run **Worker check** and look for `ntfyConfigured:
-  true`. The ledger alert trigger starts working at the worker's next tick after
-  that.
+  Grading ticks take only the first tick of UTC hours 5, 11 and 14
+  (`resolveTick`, commit ef88649), so the 09:30 ET board runs in standard time.
+  Since 2026-11-10 a board or closing fetch keeps only the events of its own ET
+  day: the bulk call lists games weeks ahead, and until then they got `am` /
+  `pm` rows and opening lines early (492 mis-tagged rows, Christmas included).
+- **ntfy topic (found missing 2026-11-05, fixed 2026-11-07).** `/tick` reported
+  `ntfyConfigured: false`: the worker had lost its `NTFY_TOPIC` secret, so every
+  edge alert, ops alert and daily summary had been dropped silently since the
+  October redeploy. The repo secret `NTFY_TOPIC` was added and **Deploy worker**
+  sets it on the worker (the step is skipped while the secret is absent); `/tick`
+  reports true and `kv_store` holds `ntfy-topic` for the ledger alert trigger.
 - **Card channel (`edgefinder-server/cards/`).** `cards/<date>/slate.json` is
   written by **Export today's slate** (`export-slate.yml`, 09:40 ET backup
   schedule; the agent dispatches it at the start of a run) from `slate_today`:
@@ -309,10 +326,15 @@ backtest engine (Phase 3) and the automated card (Phase 4) follow.
   ingested on push by **Sync cards** (`sync-cards.yml`) through `ingest_card`.
   Formats: `cards/README.md`.
 - **Card agent (Phase 0).** Persistent Claude session "EdgeFinder daily card
-  agent" (Sonnet, repository attached, `session_011ABwXWw9VgfvRSoLEwUnja`) and
-  the scheduled task "EdgeFinder daily card" (`trig_01LjyDcmfypwxvaUxUcYpcPU`,
-  9:50 AM ET). The task's prompt only syncs `main` and points at
-  `cards/PROMPT.md`, so the method (the October manual method: consensus from
+  agent v2" (Sonnet, repository attached, `session_011ABwXVVwAB7iThu945Upep`)
+  and the scheduled task "EdgeFinder daily card" (`trig_01UuhH8zZKJXoX18YCgKGwHi`,
+  9:50 AM ET). The first session was archived on 2026-11-08 after two cards of
+  untested game-line plays marked `fails` (their ledger rows were relabelled
+  verdict null, note `untested`); a long session repeats its own bad pattern, so
+  the task's prompt now restates the non-negotiables (tests before verdicts,
+  honest nulls, props included, last season counts, 40 minutes) and
+  `cards/PROMPT.md` has a "definition of done". The task's prompt otherwise only
+  syncs `main` and points at `cards/PROMPT.md`, so the method (the October manual method: consensus from
   three or more sources, own-history and comparable-set tests, verdicts
   passes / lean / fails / flip, `template_version` `manual-oct`) is edited by
   commit, never through the task. Test a run by sending the run instructions to
@@ -320,6 +342,11 @@ backtest engine (Phase 3) and the automated card (Phase 4) follow.
   session); the agent must not call `send_message` (a permission prompt stalls
   the run; the prompt says so). First runs 2026-11-04/05 wrote no card: the
   `slate_today` 404 before the migration, then an empty board (two late tips).
+  Cards since 2026-11-08 carry both tests on every play (9 to 14 plays, props
+  first); two own-history counts of the 2026-11-08 card were checked by hand
+  against Basketball-Reference game logs and matched. Known weakness: the
+  comparable set is usually the player's home or away split of the same sample,
+  not an independent group, and most props are single-source.
 - **Python pipeline (`edgefinder-server/pipeline/`).** `python -m
   edgefinder_pipeline.cli grade --date yesterday` grades `picks_ledger` rows from
   the official box scores and schedule (sportsdataverse-data parquet releases,
@@ -328,7 +355,10 @@ backtest engine (Phase 3) and the automated card (Phase 4) follow.
   `close` rows of `odds_snapshots`; CLV only at the same line), voids a player
   with no minutes, and stores final scores in `games`; `metrics` stores the
   bootstrap ROI summary in `kv_store` `ledger-metrics`. **Grade the picks ledger**
-  (`grade.yml`) runs both at 07:30 ET; **Pipeline tests** runs pytest on changes.
+  (`grade.yml`) runs both hourly from 07:30 to 13:30 ET with `--lookback 4`: the
+  box-score feed lands late in the morning ET (after 12:11 ET on 2026-11-08) and
+  GitHub delays cron runs by hours, so each run re-tries the last four days and
+  skips pipeline-graded rows. **Pipeline tests** runs pytest on changes.
   A pipeline grade overwrites an agent grade, never the reverse.
 - **Ledger tab on the site (commit 1f0b85f).** Published picks against the
   consensus control (units, ROI, hit rate with its Wilson interval, CLV share
